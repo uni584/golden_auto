@@ -1,52 +1,74 @@
-import { useEffect } from "react";
 import "@/App.css";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
-import axios from "axios";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { AuthProvider, useAuth } from "@/context/AuthContext";
+import { Toaster } from "@/components/ui/sonner";
 
-const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
-const API = `${BACKEND_URL}/api`;
+import PublicLayout from "@/pages/public/PublicLayout";
+import Home from "@/pages/public/Home";
+import ServicesPublic from "@/pages/public/ServicesPublic";
+import Booking from "@/pages/public/Booking";
+import Contact from "@/pages/public/Contact";
 
-const Home = () => {
-  const helloWorldApi = async () => {
-    try {
-      const response = await axios.get(`${API}/`);
-      console.log(response.data.message);
-    } catch (e) {
-      console.error(e, `errored out requesting / api`);
-    }
-  };
+import AdminLogin from "@/pages/admin/AdminLogin";
+import AdminLayout from "@/pages/admin/AdminLayout";
+import Dashboard from "@/pages/admin/Dashboard";
+import Bookings from "@/pages/admin/Bookings";
+import Customers from "@/pages/admin/Customers";
+import Vehicles from "@/pages/admin/Vehicles";
+import WorkOrders from "@/pages/admin/WorkOrders";
+import ServicesAdmin from "@/pages/admin/ServicesAdmin";
+import StandardActions from "@/pages/admin/StandardActions";
+import Receipts from "@/pages/admin/Receipts";
+import Notifications from "@/pages/admin/Notifications";
+import AuditLog from "@/pages/admin/AuditLog";
+import Users from "@/pages/admin/Users";
 
-  useEffect(() => {
-    helloWorldApi();
-  }, []);
-
-  return (
-    <div>
-      <header className="App-header">
-        <a
-          className="App-link"
-          href="https://emergent.sh"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <img src="https://avatars.githubusercontent.com/in/1201222?s=120&u=2686cf91179bbafbc7a71bfbc43004cf9ae1acea&v=4" />
-        </a>
-        <p className="mt-5">Building something incredible ~!</p>
-      </header>
-    </div>
-  );
+const Protected = ({ children }) => {
+  const { user } = useAuth();
+  if (!user) return <Navigate to="/admin/login" replace />;
+  return children;
 };
 
 function App() {
   return (
     <div className="App">
-      <BrowserRouter>
-        <Routes>
-          <Route path="/" element={<Home />}>
-            <Route index element={<Home />} />
-          </Route>
-        </Routes>
-      </BrowserRouter>
+      <AuthProvider>
+        <BrowserRouter>
+          <Routes>
+            <Route element={<PublicLayout />}>
+              <Route path="/" element={<Home />} />
+              <Route path="/tjanster" element={<ServicesPublic />} />
+              <Route path="/boka" element={<Booking />} />
+              <Route path="/kontakt" element={<Contact />} />
+            </Route>
+
+            <Route path="/admin/login" element={<AdminLogin />} />
+            <Route
+              path="/admin"
+              element={
+                <Protected>
+                  <AdminLayout />
+                </Protected>
+              }
+            >
+              <Route index element={<Dashboard />} />
+              <Route path="bokningar" element={<Bookings />} />
+              <Route path="kunder" element={<Customers />} />
+              <Route path="fordon" element={<Vehicles />} />
+              <Route path="arbetsorder" element={<WorkOrders />} />
+              <Route path="tjanster" element={<ServicesAdmin />} />
+              <Route path="standardatgarder" element={<StandardActions />} />
+              <Route path="kvitton" element={<Receipts />} />
+              <Route path="notiser" element={<Notifications />} />
+              <Route path="auditlogg" element={<AuditLog />} />
+              <Route path="anvandare" element={<Users />} />
+            </Route>
+
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
+          <Toaster richColors position="top-right" />
+        </BrowserRouter>
+      </AuthProvider>
     </div>
   );
 }
