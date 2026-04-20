@@ -1,0 +1,130 @@
+{
+  "theme_and_archetype": {
+    "primary_archetype": "Archetype 4 (Swiss & High-Contrast) + Archetype 5 (Jewel & Luxury)",
+    "public_site": "Dark Theme (Jewel/Luxury/Industrial)",
+    "admin_dashboard": "Light Theme (Swiss/Functional)",
+    "reasoning": "A premium auto workshop requires a luxurious, moody aesthetic for marketing to build trust and convey high-end care. The internal admin panel must prioritize clarity, fast reading, and operational efficiency under bright workshop lighting, dictating a crisp Light Theme."
+  },
+  "typography": {
+    "fonts": {
+      "headings": "Cabinet Grotesk",
+      "body": "IBM Plex Sans",
+      "mono": "JetBrains Mono"
+    },
+    "scale": {
+      "h1": "text-4xl sm:text-5xl lg:text-6xl tracking-tighter font-black",
+      "h2": "text-2xl sm:text-3xl lg:text-4xl tracking-tight font-bold",
+      "h3": "text-xl sm:text-2xl tracking-tight font-medium",
+      "body": "text-base leading-relaxed",
+      "labels": "text-xs tracking-[0.2em] uppercase font-semibold",
+      "admin_data": "text-sm tabular-nums"
+    },
+    "installation": "yarn add @fontsource/ibm-plex-sans. For Cabinet Grotesk, import via Fontshare API in index.html."
+  },
+  "colors": {
+    "public_dark_theme": {
+      "background": "#0A0A0A",
+      "surface": "#111111",
+      "surface_glass": "rgba(0,0,0,0.6)",
+      "text_primary": "#FFFFFF",
+      "text_secondary": "#A1A1AA",
+      "primary_brand": "#F59E0B",
+      "primary_brand_hover": "#D97706",
+      "border": "rgba(255,255,255,0.1)",
+      "success": "#10B981",
+      "danger": "#EF4444"
+    },
+    "admin_light_theme": {
+      "background": "#F9FAFB",
+      "surface": "#FFFFFF",
+      "text_primary": "#111827",
+      "text_secondary": "#4B5563",
+      "primary_brand": "#D97706",
+      "border": "#E5E7EB",
+      "success": "#059669",
+      "warning": "#F59E0B",
+      "danger": "#DC2626"
+    }
+  },
+  "spacing_and_layout": {
+    "public_site": {
+      "strategy": "Generous Spacing Philosophy. Wide Tetris grids for services.",
+      "section_padding": "py-24 md:py-32",
+      "container_padding": "px-6 md:px-12",
+      "grid_gaps": "gap-8 md:gap-12"
+    },
+    "admin_dashboard": {
+      "strategy": "Control Room Grid. Dense, space-efficient, strict alignment.",
+      "section_padding": "py-6",
+      "container_padding": "px-4 md:px-8",
+      "grid_gaps": "gap-4 md:gap-6"
+    }
+  },
+  "surface_strategies": {
+    "public_nav": "Crystal Glass: bg-black/60 backdrop-blur-xl border-b border-white/10.",
+    "public_cards": "Flat background (bg-[#111111]), 1px subtle white/10 border, hover state: -translate-y-1, border-white/30.",
+    "admin_panels": "Sharp edges (rounded-none or rounded-sm max), solid white background, 1px solid border (#E5E7EB), no heavy shadows.",
+    "buttons": "Primary CTA: bg-[#F59E0B] text-black font-bold hover:bg-[#D97706]. Secondary: bg-transparent border border-white/20 text-white hover:bg-white/5."
+  },
+  "component_rules": {
+    "shadcn_customizations": {
+      "radius": "0.25rem",
+      "inputs": "Public: bg-black/50 border-white/20 text-white. Admin: bg-white border-gray-300 text-black.",
+      "dialogs": "Public: Glassy backdrop, dark surface. Admin: Standard opaque overlay."
+    },
+    "icons": {
+      "library": "@phosphor-icons/react",
+      "usage": "Use duotone or bold weights for public services, regular weight for admin density."
+    },
+    "animations": {
+      "hover": "transition-transform duration-300 ease-out",
+      "page_load": "Framer Motion staggered fade-ups for public site sections."
+    }
+  },
+  "image_urls": [
+    {
+      "category": "Hero Background",
+      "url": "https://images.pexels.com/photos/14231669/pexels-photo-14231669.jpeg",
+      "description": "Close-up of a luxury sports car under soap suds. Perfect for a moody, high-end hero section overlay. Apply bg-black/60 overlay for text contrast.",
+      "alt": "Luxury car detailing and wash"
+    },
+    {
+      "category": "Service - Rekond (Detailing) & Wash",
+      "url": "https://images.pexels.com/photos/29527991/pexels-photo-29527991.jpeg",
+      "description": "Elegant close-up of Bentley logo on a sleek luxury car grill. Very premium.",
+      "alt": "Premium car detailing and polishing"
+    },
+    {
+      "category": "Service - Verkstad (Workshop)",
+      "url": "https://images.pexels.com/photos/36044141/pexels-photo-36044141.jpeg",
+      "description": "Adult male mechanic working on car brake repair. Professional and focused.",
+      "alt": "Auto workshop and mechanical repairs"
+    },
+    {
+      "category": "Service - Hjulskifte & Dackhotell (Tires)",
+      "url": "https://images.pexels.com/photos/5260115/pexels-photo-5260115.jpeg",
+      "description": "Auto mechanic changing a tire with precision equipment in a professional workshop.",
+      "alt": "Professional wheel change and tire hotel"
+    },
+    {
+      "category": "Service - General Service",
+      "url": "https://images.pexels.com/photos/20550054/pexels-photo-20550054.jpeg",
+      "description": "Mechanic repairing car under open hood, focused, wearing cap.",
+      "alt": "Regular car service and maintenance"
+    }
+  ],
+  "accessibility_and_testing": {
+    "test_attributes": "All interactive elements MUST have data-testid attributes (e.g., data-testid='booking-submit-button', data-testid='admin-login-input').",
+    "contrast": "Ensure text over images uses text-shadow or gradient overlays. The Golden Amber CTA with black text meets high contrast standards."
+  },
+  "instructions_to_main_agent": [
+    "1. STRUCTURE: The app requires two completely distinct layouts. A dark-themed marketing/booking flow (Public) and a light-themed operational dashboard (Admin).",
+    "2. PUBLIC BOOKING FLOW: Build a multi-step booking form. Break it down: Select Service -> Date/Time -> Customer Info -> Confirmation. Use Framer Motion for smooth step transitions.",
+    "3. ADMIN DASHBOARD: Prioritize data density. Use Shadcn tables for booking management. Include workflow status pills (Pending, In-Progress, Completed).",
+    "4. VISUAL IDENTITY: Strictly adhere to the Cabinet Grotesk + IBM Plex Sans font pairing. Use the Golden Amber color (#F59E0B) intentionally for CTAs and active states, NOT as large background blocks.",
+    "5. IMAGES: Use the provided Pexels image URLs for the public site's hero and service bento-grid. Apply a bg-black/50 to bg-black/70 overlay on the hero image to ensure the H1 is perfectly legible.",
+    "6. Do not use placehold.it or similar dummy images. If more images are needed, use abstract CSS gradients using the brand colors.",
+    "7. Set up Phosphor Icons (@phosphor-icons/react) for all iconography.",
+    "8. Ensure all forms use fully customized Shadcn UI components matching the active theme."
+  ]
+}
