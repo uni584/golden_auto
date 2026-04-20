@@ -20,6 +20,8 @@ import ServicesAdmin from "@/pages/admin/ServicesAdmin";
 import StandardActions from "@/pages/admin/StandardActions";
 import Receipts from "@/pages/admin/Receipts";
 import Notifications from "@/pages/admin/Notifications";
+import TireHotel from "@/pages/admin/TireHotel";
+import SeasonReminders from "@/pages/admin/SeasonReminders";
 import AuditLog from "@/pages/admin/AuditLog";
 import Users from "@/pages/admin/Users";
 
@@ -59,6 +61,8 @@ function App() {
               <Route path="tjanster" element={<ServicesAdmin />} />
               <Route path="standardatgarder" element={<StandardActions />} />
               <Route path="kvitton" element={<Receipts />} />
+              <Route path="dackhotell" element={<TireHotel />} />
+              <Route path="paminnelser" element={<SeasonReminders />} />
               <Route path="notiser" element={<Notifications />} />
               <Route path="auditlogg" element={<AuditLog />} />
               <Route path="anvandare" element={<Users />} />

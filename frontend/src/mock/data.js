@@ -196,6 +196,32 @@ export const STATUS_LABELS = {
   invoiced: { label: "Fakturerad", color: "bg-emerald-100 text-emerald-900 border-emerald-200" },
 };
 
+export const TIRE_HOTEL = [
+  { id: "th1", customer: "Linnea Bergström", regnr: "ABC123", vehicle: "Volvo XC60", location: "A-12", rack: "A", slot: 12, tires: "Michelin Alpin 6 · 235/55 R19", season: "winter", tread: "7.5 mm", storedAt: "2026-04-14", withdrawnAt: null, status: "stored" },
+  { id: "th2", customer: "Johan Eriksson", regnr: "DEF456", vehicle: "BMW 320d", location: "A-23", rack: "A", slot: 23, tires: "Continental WinterContact · 225/45 R18", season: "winter", tread: "6.2 mm", storedAt: "2026-04-18", withdrawnAt: null, status: "stored" },
+  { id: "th3", customer: "Anna Karlsson", regnr: "MNO654", vehicle: "Volkswagen Golf", location: "B-07", rack: "B", slot: 7, tires: "Goodyear UltraGrip · 205/55 R16", season: "winter", tread: "5.1 mm", storedAt: "2025-10-22", withdrawnAt: null, status: "stored" },
+  { id: "th4", customer: "Peter Nilsson", regnr: "PQR987", vehicle: "Mercedes C200", location: "B-14", rack: "B", slot: 14, tires: "Bridgestone Blizzak · 225/50 R17", season: "winter", tread: "4.8 mm", storedAt: "2025-10-30", withdrawnAt: null, status: "stored" },
+  { id: "th5", customer: "Eva Persson", regnr: "STU246", vehicle: "Kia Ceed", location: "C-03", rack: "C", slot: 3, tires: "Nokian Hakkapeliitta · 205/55 R16", season: "summer", tread: "6.0 mm", storedAt: "2025-05-12", withdrawnAt: "2025-10-18", status: "withdrawn" },
+  { id: "th6", customer: "Oskar Holm", regnr: "VXY135", vehicle: "Volvo V90", location: "C-08", rack: "C", slot: 8, tires: "Michelin Pilot Sport · 245/45 R18", season: "summer", tread: "5.5 mm", storedAt: "2025-05-20", withdrawnAt: null, status: "stored" },
+  { id: "th7", customer: "Sara Lindqvist", regnr: "GHI789", vehicle: "Audi A4", location: "A-04", rack: "A", slot: 4, tires: "Pirelli P Zero · 245/40 R18", season: "summer", tread: "7.1 mm", storedAt: "2025-05-15", withdrawnAt: null, status: "stored" },
+  { id: "th8", customer: "Mikael Andersson", regnr: "JKL321", vehicle: "Tesla Model 3", location: "D-19", rack: "D", slot: 19, tires: "Michelin PS4 · 235/40 R19", season: "summer", tread: "6.8 mm", storedAt: "2025-05-28", withdrawnAt: null, status: "stored" },
+];
+
+export const REMINDER_CAMPAIGNS = [
+  { id: "rc1", name: "Vårskifte 2026 – alla däckhotellskunder", segment: "Kunder med vinterdäck i hotell", targets: 142, channel: "email+sms", sent: 142, opened: 96, booked: 58, status: "sent", sentAt: "2026-03-15 09:00", template: "season_spring" },
+  { id: "rc2", name: "Påminnelse sommardäck", segment: "Kunder utan vårbokning", targets: 84, channel: "sms", sent: 84, opened: null, booked: 21, status: "sent", sentAt: "2026-04-05 08:30", template: "reminder_book" },
+  { id: "rc3", name: "Höstskifte 2025 – alla däckhotellskunder", segment: "Kunder med sommardäck i hotell", targets: 128, channel: "email+sms", sent: 128, opened: 104, booked: 92, status: "sent", sentAt: "2025-10-01 09:00", template: "season_autumn" },
+  { id: "rc4", name: "Vårskifte 2026 – omgång 2", segment: "Ej bokade efter 2026-04-01", targets: 38, channel: "email", sent: 0, opened: null, booked: null, status: "scheduled", sentAt: "2026-04-25 09:00", template: "reminder_book" },
+  { id: "rc5", name: "Nykund-erbjudande", segment: "Kunder utan däckhotell", targets: 62, channel: "email", sent: 0, opened: null, booked: null, status: "draft", sentAt: null, template: "upsell_hotel" },
+];
+
+export const REMINDER_TEMPLATES = [
+  { id: "t1", key: "season_spring", name: "Vårskifte – dags för sommardäck", channel: "email+sms", preview: "Hej {namn}! Dags att byta till sommardäck. Dina däck väntar på oss i däckhotellet. Boka tid online →" },
+  { id: "t2", key: "season_autumn", name: "Höstskifte – dags för vinterdäck", channel: "email+sms", preview: "Hej {namn}! Kylan är på väg. Boka ditt däckskifte nu så har vi dina vinterdäck redo." },
+  { id: "t3", key: "reminder_book", name: "Påminnelse – boka tid", channel: "sms", preview: "Hej {namn}! Har du inte hunnit boka ditt däckskifte än? Det finns lediga tider nästa vecka." },
+  { id: "t4", key: "upsell_hotel", name: "Erbjudande – däckhotell", channel: "email", preview: "Slipp släpa däck. Golden Auto erbjuder tempererat däckhotell från 695 kr/säsong." },
+];
+
 export const OVERVIEW = {
   todayBookings: 4,
   newBookings: 2,

@@ -4,7 +4,7 @@ import { useAuth } from "@/context/AuthContext";
 import {
   Gauge, Calendar, Users as UsersIcon, Car, ClipboardText, Wrench,
   ListChecks, Receipt, Bell, ClockCounterClockwise, UsersThree, SignOut,
-  MagnifyingGlass, CaretDown,
+  MagnifyingGlass, CaretDown, Warehouse, PaperPlaneTilt,
 } from "@phosphor-icons/react";
 
 const SECTIONS = [
@@ -13,6 +13,8 @@ const SECTIONS = [
     { to: "/admin/bokningar", icon: Calendar, label: "Bokningar" },
     { to: "/admin/arbetsorder", icon: ClipboardText, label: "Arbetsorder" },
     { to: "/admin/kvitton", icon: Receipt, label: "Kvitton" },
+    { to: "/admin/dackhotell", icon: Warehouse, label: "Däckhotell" },
+    { to: "/admin/paminnelser", icon: PaperPlaneTilt, label: "Säsongspåminnelser" },
   ]},
   { label: "Register", items: [
     { to: "/admin/kunder", icon: UsersIcon, label: "Kunder" },
