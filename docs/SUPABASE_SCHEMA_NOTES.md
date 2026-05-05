@@ -43,7 +43,8 @@ Detta dokument beskriver antaganden och avgransningar for det forsta schemautkas
 - Alla centrala tabeller har `created_at` och `updated_at`.
 - Trigger-funktion `set_updated_at()` uppdaterar `updated_at` automatiskt vid `UPDATE`.
 - Falt for framtida actorsporning finns som `created_by` och `updated_by` (UUID) pa relevanta tabeller.
-- Full auditlogg-tabell, revisionshistorik och actor-resolution skjuts till senare fas.
+- **Plan for append-only audit:** **`docs/AUDIT_LOGGING_PLAN.md`** (tabell `audit_events`, RLS, ingen klient-skrivning, RPC/trigger-koppling — **ej** migrerat an).
+- Full revisionshistorik per falt och extern actor-resolution skjuts tills **`0009+`** ar beslutat och implementerat.
 
 ## Affarsantaganden i utkastet
 
@@ -207,11 +208,15 @@ Nasta steg: kor pgTAP-regression (`npx supabase test db`) enligt `docs/RLS_VERIF
 - Direkt klient-`INSERT` pa `receipts` forblir **nej** (RLS). **`receipts_deny_client_update` / `receipts_deny_client_delete`:** klient-`UPDATE`/`DELETE` nekas med RAISE.
 - **Ej** void/betalning/refund-RPC, Edge, frontend, full ekonomisk validering.
 
+### Planerad migration `0009` (dokumentation)
+
+- Se **`docs/AUDIT_LOGGING_PLAN.md`**: `audit_events`, intern append-funktion, `SELECT` for owner/admin, forsta skrivningar fran **`update_vehicle_registration_fields`** och **`create_receipt`**; ovriga tabeller/triggers enligt plan.
+
 ## Syntax och kvalitet
 
 - SQL ar skriven for Postgres/Supabase med `pgcrypto` extension.
 - Utkastet ar avsett som stabil startpunkt for vidare hardning:
   - RLS
-  - auditlogg
+  - audit enligt **`docs/AUDIT_LOGGING_PLAN.md`**
   - tenant-sakerhet i FK/constraints
   - ev. krypteringsnyckelhantering och dekrypteringsstrategi

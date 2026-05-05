@@ -2,7 +2,7 @@
 
 Detta dokument beskriver skrivstrategi for Golden Auto och vad som **redan ar implementerat** vs **aterstar**.
 
-**Relaterat:** `docs/RLS_POLICY_PLAN.md` (SELECT + helpers), `docs/RLS_VERIFICATION_PLAN.md` (test/ regression), `docs/RECEIPTS_AND_REGISTRATION_SECURITY_PLAN.md` (receipts + regnr — nästa steg).
+**Relaterat:** `docs/RLS_POLICY_PLAN.md` (SELECT + helpers), `docs/RLS_VERIFICATION_PLAN.md` (test/ regression), `docs/RECEIPTS_AND_REGISTRATION_SECURITY_PLAN.md` (receipts + regnr — nästa steg), **`docs/AUDIT_LOGGING_PLAN.md`** (append-only audit, **ej** implementerad an).
 
 ## Implementerat: `0005_initial_write_policies.sql`
 
@@ -91,7 +91,7 @@ Migrationen inför **endast** `INSERT`/`UPDATE` RLS (inga `DELETE`) for:
 - **WITH CHECK:** varje write-policy ska validera att `tenant_id` (och `workshop_id` nar den finns) stammer fran samma tenant/workshop som anvandaren far skriva i; inga "flyttar" av rader mellan tenants via `UPDATE`.
 - **Inga DELETE-policies i forsta write-migration:** prioritera **soft delete / archive** (ny kolumn eller status) i senare datamodell-migration; tills dess ska `DELETE` forbli **utan** policy (dvs nekad for `authenticated`) om inte tabellen redan ar oppen utan RLS for superuser-only.
 - **Service role i frontend:** **forbjuden**; klienten anvander endast `anon`/`authenticated`. Privilegierade floden (invite, receipt finalisering, regnr-kryptering) sker via **Edge Function / backend / saker RPC** med separat identitet och strikt validering.
-- **Audit:** inga `audit_*`-tabeller i detta repo an; nar de infors ska de **inte** vara klientskrivbara — endast server-side eller `SECURITY DEFINER`-RPC med hard kontroll.
+- **Audit:** inga `audit_*`-tabeller i detta repo an. **Plan:** **`docs/AUDIT_LOGGING_PLAN.md`** (`audit_events`, intern `append_audit_event`, RLS `SELECT` for owner/admin, **ingen** klient-skrivning). Nasta migrationssteg efter den planen: typiskt **`0009`**.
 - **Kanslig data:** `vehicles.reg_number_*` ska betraktas som hogkansligt; klient-write ska begransas eller ersattas av RPC som satter ciphertext/hash konsekvent.
 
 ## 2) Roller — skrivratt (oversikt)
@@ -277,7 +277,7 @@ Uppdaterad sakerhets- och implementationsvagledning: **`docs/RECEIPTS_AND_REGIST
 1. **Steg A — "Sakert bottenlager":** triggers for `created_by`/`updated_by` dar kolumner finns; **inga** policies an `tenant_members`/`workshop_members`/`tenants` (klient write fortfarande nekad).
 2. **Steg B — receptionist + admin operativt:** `INSERT`/`UPDATE` policies for `customers`, `bookings`, `quotes`, `quote_items` med strikta `WITH CHECK` + `profiles` self-`UPDATE` endast.
 
-**Steg C (0006):** ~~`vehicles`, `work_orders`, `tire_hotel`~~ **klart** i `0006_operational_write_policies.sql`. **Steg D (`0008`):** ~~receipts RPC-grund (`create_receipt`)~~ **klart**; **aterstar** void/betalnings-RPC, audit-triggers, produktregler.
+**Steg C (0006):** ~~`vehicles`, `work_orders`, `tire_hotel`~~ **klart** i `0006_operational_write_policies.sql`. **Steg D (`0008`):** ~~receipts RPC-grund (`create_receipt`)~~ **klart**; **aterstar** void/betalnings-RPC, produktregler. **Steg E (planerad `0009`):** se **`docs/AUDIT_LOGGING_PLAN.md`** — `audit_events` + saker append + koppling till befintliga RPC forst; triggers pa ovriga tabeller kan komma efter.
 
 Efter varje steg: utoka `supabase/tests/database/*.test.sql` med write-negative/positive tester (ny fil eller utokning — separat uppgift).
 
@@ -289,7 +289,8 @@ Efter varje steg: utoka `supabase/tests/database/*.test.sql` med write-negative/
 - [x] Verifiera att `npx supabase test db` ar gron efter `0005`–`0008` (SELECT 32/32 + write 93/93 i nuvarande miljo; **125** totalt).
 - [x] `supabase/tests/database/rls_write_policies.test.sql` for skrivscenarier (0005 + 0006 + 0007 reg-hantering + **0008 receipts**).
 - [ ] Inga service-role nycklar i frontend.
+- [ ] Las **`docs/AUDIT_LOGGING_PLAN.md`** innan **`0009`** (audit foundation).
 
 ---
 
-*Avsnitt 5 beskriver fortfarande helhetsbeslut; operativ skriv for `vehicles`/`work_orders`/`tire_hotel` ar i **0006**; **registreringsfalt-UPDATE** i **0007**; **kvitto-skapande (foundation)** i **0008** (`create_receipt`). **Nasta steg:** **`docs/RECEIPTS_AND_REGISTRATION_SECURITY_PLAN.md`** (void/betalning, fortsatt regnr/kryptering, Edge/backend).*
+*Avsnitt 5 beskriver fortfarande helhetsbeslut; operativ skriv for `vehicles`/`work_orders`/`tire_hotel` ar i **0006**; **registreringsfalt-UPDATE** i **0007**; **kvitto-skapande (foundation)** i **0008** (`create_receipt`). **Nasta steg:** **`docs/RECEIPTS_AND_REGISTRATION_SECURITY_PLAN.md`** (void/betalning, fortsatt regnr/kryptering, Edge/backend); **`docs/AUDIT_LOGGING_PLAN.md`** (`0009` audit-events).*
