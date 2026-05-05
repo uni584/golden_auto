@@ -169,11 +169,17 @@ Nasta steg: kor syntetisk RLS-testdata + testsvit enligt `docs/RLS_VERIFICATION_
 - Syntetiska `auth.users` och domandata endast; ingen riktig kunddata.
 - Senast kord: **32/32 PASS** (lokal Supabase via `npx`). Se aven `docs/RLS_VERIFICATION_PLAN.md` for tackning mot manuella T1–T17.
 
-## Write-policies (plan, ej implementerat)
+## Write-policies
 
-- Detaljplan: **`docs/RLS_WRITE_POLICY_PLAN.md`** (INSERT/UPDATE per tabell, WITH CHECK, DELETE skjuts upp, RPC vs klient, `created_by`/`updated_by`).
-- Overgripande koppling: **`docs/RLS_POLICY_PLAN.md`** (SELECT + lank till write-plan).
-- Inga migrationer for write har skapats an; `viewer` ska inte fa skrivratt; membership-tabeller ska inte styras av vanlig klient-write.
+- Detaljplan: **`docs/RLS_WRITE_POLICY_PLAN.md`** (inkl. vad som ar implementerat i `0005`).
+- Overgripande: **`docs/RLS_POLICY_PLAN.md`**.
+
+### Migration `0005_initial_write_policies.sql`
+
+- `INSERT`/`UPDATE` RLS for: `profiles` (egen `UPDATE`), `customers`, `bookings`, `quotes`, `quote_items`.
+- Roller: `owner`/`admin`/`receptionist` enligt policy (ej `mechanic`/`viewer` for dessa tabeller i detta steg).
+- Triggers: immutable `tenant_id` pa `UPDATE` for namnda tabeller dar lampligt; `created_by`/`updated_by` satts fran `auth.uid()` pa `customers`/`bookings`/`quotes`.
+- **Inga** `DELETE`-policies; inga writes till membership, `vehicles`, `work_orders`, `receipts`, `tire_hotel` har.
 
 ## Syntax och kvalitet
 

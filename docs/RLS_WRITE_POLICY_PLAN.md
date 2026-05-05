@@ -1,8 +1,27 @@
-# RLS WRITE POLICY PLAN (PRE-IMPLEMENTATION)
+# RLS WRITE POLICY PLAN
 
-Detta dokument ar en **skrivpolicy-plan** for Golden Auto innan nagra `INSERT`/`UPDATE`/`DELETE` RLS-policies implementeras. Inget har i denna fas andrats i databasen.
+Detta dokument beskriver skrivstrategi for Golden Auto och vad som **redan ar implementerat** vs **aterstar**.
 
 **Relaterat:** `docs/RLS_POLICY_PLAN.md` (SELECT + helpers), `docs/RLS_VERIFICATION_PLAN.md` (test/ regression).
+
+## Implementerat: `0005_initial_write_policies.sql`
+
+Migrationen inför **endast** `INSERT`/`UPDATE` RLS (inga `DELETE`-policies) for:
+
+- `profiles` — `profiles_update_self` (endast `user_id = auth.uid()`, `WITH CHECK` samma; ingen klient-uppdatering av andras profiler).
+- `customers` — `customers_insert_scoped`, `customers_update_scoped` (`owner`/`admin`/`receptionist`; receptionist kraver `workshop_id` + workshop-access; **ej** `mechanic`/`viewer`).
+- `bookings` — `bookings_insert_scoped`, `bookings_update_scoped` (samma rollkrav; `UPDATE` `USING` = `current_user_has_workshop_access` i linje med SELECT; `WITH CHECK` validerar tenant/workshop + FK-konsistens mot `customers`/`vehicles`).
+- `quotes` — `quotes_insert_scoped`, `quotes_update_scoped` (samma; `booking_id` valideras mot samma `workshop_id` som offerten).
+- `quote_items` — `quote_items_insert_scoped`, `quote_items_update_scoped` (parent `quotes` maste matcha `tenant_id`; receptionist via workshop pa parent-offert).
+
+**Triggers i 0005:**
+
+- `tg_reject_tenant_id_change` pa `customers`, `bookings`, `quotes`, `quote_items` — `tenant_id` immutable pa `UPDATE`.
+- `tg_set_audit_actor` pa `customers`, `bookings`, `quotes` — satter `created_by`/`updated_by` fran `auth.uid()`; `created_by` bevaras pa `UPDATE` (ingen klient-spoof).
+
+**Ej i 0005 (medvetet):** `tenants`, `workshops`, `tenant_members`, `workshop_members`, `vehicles`, `work_orders`, `receipts`, `tire_hotel`; **inga** `DELETE`-policies.
+
+**Begransning / nasta test:** befintlig pgTAP-fil testar endast SELECT. Rekommenderad ny fil: `supabase/tests/database/rls_write_policies.test.sql` (positiva/negativa INSERT/UPDATE, inkl. forsok att byta `tenant_id`, `quote_items` mot fel `quote`).
 
 ## 1) Gemensamma principer
 
@@ -202,9 +221,10 @@ Efter varje steg: utoka `supabase/tests/database/*.test.sql` med write-negative/
 - [ ] Product owner godkanner rollmatris for `receipts` och `work_orders`.
 - [ ] Beslut om soft-delete kolumner (separat datamigration).
 - [ ] Beslut om regnr-RPC kontra klient-krypterat payload.
-- [ ] Verifiera att `npx supabase test db` fortfarande ar gron efter SELECT-lager.
+- [x] Verifiera att `npx supabase test db` ar gron efter `0005` (SELECT-regression 32/32 i nuvarande miljo).
+- [ ] Lagg till `supabase/tests/database/rls_write_policies.test.sql` for skrivscenarier.
 - [ ] Inga service-role nycklar i frontend.
 
 ---
 
-*Detta dokument ar en plan; implementation sker forst i kommande migrationer efter godkannande.*
+*Plan-delar under avsnitt 5–8 galler fortfarande tabeller som inte migrerats annat an som angetts i avsnitt "Implementerat: 0005". Nasta write-migration: se avsnitt 8 (`vehicles`, `work_orders`, `tire_hotel`, `receipts`, m.m.).*

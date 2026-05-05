@@ -104,17 +104,26 @@ Migration: `supabase/migrations/0004_rls_select_hardening.sql`
   - testa med staging-data att inga infinite recursion-fel uppstar pa SELECT.
 - Framtida strategi: introducera FORCE RLS forst nar write-policies och ev. separata "policy-safe" interna funktioner ar pa plats och verifieringsplanen ar gron.
 
-## Write-policies (planeras, ej implementerade)
+## Write-policies
 
-**Detaljerad skrivmatris, WITH CHECK, DELETE-strategi och RPC-krav:** se **`docs/RLS_WRITE_POLICY_PLAN.md`**.
+**Plan (helhet):** `docs/RLS_WRITE_POLICY_PLAN.md`.
 
-Kort sammanfattning av nasta implementationsfas:
+### Migration `0005_initial_write_policies.sql` (forsta begransade write-lager)
 
-- `viewer`: ingen skrivratt via RLS.
-- `tenant_members` / `workshop_members` / kansliga ekonomiska floden: **forbli utan klient-write** eller endast **saker RPC** enligt planen.
-- Forsta migration efter plan: rekommenderas **profiles** (self-update) + operativa tabeller `customers`, `bookings`, `quotes`, `quote_items`; sedan `vehicles`, `work_orders`, `tire_hotel`, `receipts` (receipts mest restriktiv / RPC).
-- `DELETE`-policies: skjuts upp till soft-delete/archive ar pa plats.
-- Triggers for `created_by`/`updated_by` + strikta `WITH CHECK` pa `tenant_id`/`workshop_id`.
+- **`profiles`:** `profiles_update_self` — endast `UPDATE` egen rad (`user_id = auth.uid()` i `USING` + `WITH CHECK`).
+- **`customers`:** `customers_insert_scoped`, `customers_update_scoped` — `owner`/`admin`/`receptionist` (receptionist: `workshop_id` obligatoriskt + workshop-access); **ej** `mechanic`/`viewer`; `tenant_id` immutable (trigger); `created_by`/`updated_by` via trigger.
+- **`bookings`:** `bookings_insert_scoped`, `bookings_update_scoped` — samma roller; `UPDATE` `USING` foljer workshop-access (som SELECT); `WITH CHECK` validerar workshop tillhor tenant + `customer_id`/`vehicle_id` i samma tenant.
+- **`quotes`:** `quotes_insert_scoped`, `quotes_update_scoped` — samma; validerar `customer`/`vehicle` + valfri `booking_id` mot samma `workshop_id`.
+- **`quote_items`:** `quote_items_insert_scoped`, `quote_items_update_scoped` — skriv endast om parent `quotes` matchar `tenant_id` och roll/workshop stammer fran offerten.
+
+**Triggers:** `tg_reject_tenant_id_change`, `tg_set_audit_actor` (se write-plan).
+
+**Ej i 0005:** `DELETE`-policies; skriv till `tenants`, `workshops`, membership, `vehicles`, `work_orders`, `receipts`, `tire_hotel`.
+
+### Nasta implementationsfas (efter 0005)
+
+- `viewer`: fortfarande ingen skrivratt.
+- `tenant_members` / `workshop_members` / `receipts` / `vehicles`: enligt `docs/RLS_WRITE_POLICY_PLAN.md` (RPC eller senare migration).
 - `FORCE ROW LEVEL SECURITY`: se avsnitt ovan; fortfarande medvetet senarelagt.
 
 ## Sakerhetsrisker och antaganden
