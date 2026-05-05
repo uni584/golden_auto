@@ -31,9 +31,54 @@ Sakerhet och data:
 
 Nasta steg (efter lyckad reset):
 
-- Ladda **syntetisk** RLS-testdata och kor testsviten (T1–T17) i denna fil, **eller** fortsatt planering av write-policies (`INSERT`/`UPDATE`/`DELETE`) i separat migration nar SELECT-verifieringen ar gron.
+- Kor `npx supabase test db` (pgTAP-filen ovan) for SELECT-regression, komplettera manuellt dar tabellen markerar **Nej**, planera sedan **0005** write-policies nar kraven ar uppfyllda.
 
 **Obs:** Reset bevisar att SQL-migrationerna ar syntaktiskt tillampningsbara och att databasen startar; den ersatter inte full RLS-testkorning med impersonering/JWT.
+
+## Automatiserad SELECT-RLS testsvit (pgTAP)
+
+Fil: `supabase/tests/database/rls_select_policies.test.sql`
+
+- Forsta automatiserade regressionssviten for SELECT-RLS (syntetiska `auth.users`, tenants, workshops, domandata).
+- **32** pgTAP-test (plan 32); anvander `SET LOCAL ROLE authenticated` + JWT-claims (`request.jwt.claim.sub` / `role`) via hjalpfunktion i samma fil.
+- All data ar fejk (`*.example.test`, placeholder `reg_number_ciphertext` / `digest(...)` for hash); ingen riktig kunddata.
+- `receptionist` ar inte en separat testidentitet; samma profil-RLS som for `viewer`/`mechanic` (icke owner/admin) avrads via gemensamma policies och tas ut av **T8** (viewer ser inte kollegas profil).
+
+### Korning (lokal Supabase)
+
+1. `npx supabase start` (Docker Desktop igang)
+2. `npx supabase db reset` (tillampar `0001`–`0004`)
+3. `npx supabase test db`
+
+Senast kord i repo-miljo: **32/32 PASS** (pg_prove mot lokal databas).
+
+### Tackning mot manuella T1–T17 ( dokumentationsmatris )
+
+| Manuellt fall i denna fil | Automatiserat? | Kommentar |
+|---------------------------|----------------|-----------|
+| T1–T2 (tenant isolering) | Ja | T1–T2 |
+| T3–T4 (workshop isolering) | Ja | T3–T4 |
+| T5–T6 (suspended) | Ja | T11–T12 |
+| T7 (no membership) | Ja | T14 |
+| T8 (`quote_items` annan tenant) | Ja | T20 |
+| T9–T10 (vehicles/customers) | Ja | T15–T16 |
+| T11–T12 (membership listing) | Delvis | T25–T27; admin/owner utokad listing |
+| T13–T14 (profiler owner/admin) | Ja | T7–T10, T24 |
+| T15 (owner utan workshop ser workshops) | Ja | T5–T6 |
+| T16 (bokningar fortfarande workshop) | Ja | T6, T17a–T17b |
+| T17 (anon/helper execute) | **Nej** | Krav manuellt eller separat testrigg |
+
+Ovriga manuella/kompletterande tester (ej i pgTAP-filen an):
+
+- **T17 (anon):** `REVOKE EXECUTE` pa helpers for `anon` — verifiera i staging med `anon`-JWT eller policy-debug.
+- **Receptionist som egen roll:** valfritt; policy-skillnad mot `viewer` ar idag minimal for `profiles` (icke owner/admin).
+- **B_owner** som separat identitet: valfritt; cross-tenant profil testas med **T24** (B-mechanic).
+- **Last/ prestanda / audit-write:** utanfor SELECT-scope.
+
+### Nasta steg
+
+- Anvand `npx supabase test db` som regression fore **0005** write-policies.
+- Komplettera manuellt med T17 (anon) om krav finns i er sakerhetsmodell.
 
 ## 1) Mal med verifieringsfasen
 
@@ -229,7 +274,9 @@ Hogst prioritet (mest kritiska):
 
 RLS SELECT-lagret ar redo for nasta steg om:
 
-- Samtliga T1-T17 passerar (eller motsvarande minima om T17 inte ar mojlig i vald testrigg).
+- `npx supabase test db` ar **gron** (32/32 i nuvarande testsvit), **och**
+- manuella kompletteringar som organisationen krav (t.ex. anon/helper T17) ar hanterade eller accepterat risk, **och**
+- ovriga manuella T1-T17 dar tabellen markerar **Nej** ar korda eller medvetet scope-utelamnade.
 - Inga cross-tenant/cross-workshop rader returneras.
 - Suspended/revoked/no-membership ar konsekvent blockerade.
 - Inga recursion- eller policy-evalueringsfel uppstar.

@@ -162,6 +162,13 @@ Genomford lokalt med Docker Desktop igang och `npx supabase db reset` (PowerShel
 
 Nasta steg: kor syntetisk RLS-testdata + testsvit enligt `docs/RLS_VERIFICATION_PLAN.md`, eller planera write-policies nar SELECT-testerna ar grona. Ingen service role i frontend; inga write-policies ar aktiverade an.
 
+## Automatiserad SELECT-RLS regression
+
+- Fil: `supabase/tests/database/rls_select_policies.test.sql` (pgTAP, 32 test).
+- Kor lokalt: `npx supabase start` → `npx supabase db reset` → `npx supabase test db`.
+- Syntetiska `auth.users` och domandata endast; ingen riktig kunddata.
+- Senast kord: **32/32 PASS** (lokal Supabase via `npx`). Se aven `docs/RLS_VERIFICATION_PLAN.md` for tackning mot manuella T1–T17.
+
 ## Syntax och kvalitet
 
 - SQL ar skriven for Postgres/Supabase med `pgcrypto` extension.
