@@ -52,6 +52,19 @@ Fil: `supabase/tests/database/rls_select_policies.test.sql`
 
 Senast kord i repo-miljo: **32/32 PASS** (pg_prove mot lokal databas).
 
+### WRITE-RLS testsvit (pgTAP, migration 0005)
+
+Fil: `supabase/tests/database/rls_write_policies.test.sql`
+
+- **44** pgTAP-test (`plan(44)`); syntetisk data, `rollback` i slutet; samma JWT/impersoneringsmonster som SELECT-sviten (`SET LOCAL ROLE authenticated` + `request.jwt.claim.sub` / `role`).
+- Tacker `INSERT`/`UPDATE` for `profiles`, `customers`, `bookings`, `quotes`, `quote_items` samt nekad `INSERT` till tabeller utan write-policies (se `docs/RLS_WRITE_POLICY_PLAN.md`).
+
+**Korning:** `npx supabase start` (vid behov), `npx supabase db reset`, `npx supabase test db`.
+
+**Resultat (senast i repo-miljo):** **76/76 PASS** totalt (**32** SELECT + **44** write). Daarmed anses **0005_initial_write_policies.sql** vara **regressionstestad** for det som sviten uttryckligen tacker; kvarstaende manuell risk (t.ex. anon/helper T17) ar oforandrad.
+
+**Receptionist:** implementation kraver aktiv `tenant_members.role = 'receptionist'` **och** `workshop_members` som ger `current_user_has_workshop_access` — se write-planen for eventuell produkt-jamforelse mot "enbart workshop-receptionist".
+
 ### Tackning mot manuella T1–T17 ( dokumentationsmatris )
 
 | Manuellt fall i denna fil | Automatiserat? | Kommentar |

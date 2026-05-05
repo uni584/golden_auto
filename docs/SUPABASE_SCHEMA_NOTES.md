@@ -169,6 +169,12 @@ Nasta steg: kor syntetisk RLS-testdata + testsvit enligt `docs/RLS_VERIFICATION_
 - Syntetiska `auth.users` och domandata endast; ingen riktig kunddata.
 - Senast kord: **32/32 PASS** (lokal Supabase via `npx`). Se aven `docs/RLS_VERIFICATION_PLAN.md` for tackning mot manuella T1–T17.
 
+## Automatiserad WRITE-RLS regression (0005)
+
+- Fil: `supabase/tests/database/rls_write_policies.test.sql` (pgTAP, **44** test).
+- Kors av samma `npx supabase test db` som SELECT-sviten efter `db reset`.
+- Senast kord: **44/44 PASS** tillsammans med SELECT (**76** totalt, 32+44). Detaljer och receptionist-/scope-anteckning: `docs/RLS_WRITE_POLICY_PLAN.md`.
+
 ## Write-policies
 
 - Detaljplan: **`docs/RLS_WRITE_POLICY_PLAN.md`** (inkl. vad som ar implementerat i `0005`).
