@@ -2,6 +2,39 @@
 
 Detta dokument beskriver en saker verifieringsfas for RLS SELECT-lagret (`0003` + hardning `0004`) innan write-policies byggs.
 
+## Lokal migreringsverifiering (genomford)
+
+Miljo och kommando:
+
+- Docker Desktop var igang (lokal Postgres for Supabase-stacken).
+- Supabase CLI anropades via `npx supabase` (ingen global `supabase`-binary kravdes).
+- `npx supabase db reset` kordes fran PowerShell pa branch `main`.
+
+Resultat (migrationer applicerade utan avbrott):
+
+- `0001_initial_schema.sql`
+- `0002_auth_membership_foundation.sql`
+- `0003_rls_helpers_and_select_policies.sql`
+- `0004_rls_select_hardening.sql`
+
+Log-notiser som ar forvantade och ofarliga:
+
+- `DROP POLICY IF EXISTS ... does not exist, skipping` i `0003` vid forsta reset: policies fanns annu inte; kommandot ar idempotent.
+
+Log-notiser som inte blockerar:
+
+- `WARN: no files matched pattern: supabase/seed.sql`: ingen seed-fil ar checkad in; reset lyckades anda. Lagg till `supabase/seed.sql` senare om syntetisk testdata ska laddas automatiskt.
+
+Sakerhet och data:
+
+- Ingen riktig kunddata anvandes; endast schema/migrationer applicerades.
+
+Nasta steg (efter lyckad reset):
+
+- Ladda **syntetisk** RLS-testdata och kor testsviten (T1–T17) i denna fil, **eller** fortsatt planering av write-policies (`INSERT`/`UPDATE`/`DELETE`) i separat migration nar SELECT-verifieringen ar gron.
+
+**Obs:** Reset bevisar att SQL-migrationerna ar syntaktiskt tillampningsbara och att databasen startar; den ersatter inte full RLS-testkorning med impersonering/JWT.
+
 ## 1) Mal med verifieringsfasen
 
 - Bekrafta tenant-isolering for alla SELECT-policies.

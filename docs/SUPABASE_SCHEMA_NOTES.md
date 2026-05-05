@@ -151,6 +151,17 @@ Migration: `supabase/migrations/0004_rls_select_hardening.sql`
 - `workshops` SELECT-policy: tenant `owner`/`admin` med aktivt medlemskap far lasa alla workshops i tenant; ovriga roller behover `active` workshop-medlemskap per workshop.
 - `FORCE ROW LEVEL SECURITY` infors inte i detta steg (risk for recursion med nuvarande helper-design); se `docs/RLS_POLICY_PLAN.md`.
 
+## Lokal Supabase migrationsverifiering
+
+Genomford lokalt med Docker Desktop igang och `npx supabase db reset` (PowerShell, branch `main`):
+
+- Alla migrationer `0001`–`0004` applicerades utan SQL-fel som stoppade loppet.
+- Meddelandet `DROP POLICY IF EXISTS ... does not exist, skipping` under `0003` ar forvantat vid forsta korning (idempotent drop).
+- Varningen `no files matched pattern: supabase/seed.sql` betyder att ingen seed-fil finns; den blockerar inte reset. Lagg till syntetisk seed senare om onskat.
+- Ingen riktig kunddata anvandes.
+
+Nasta steg: kor syntetisk RLS-testdata + testsvit enligt `docs/RLS_VERIFICATION_PLAN.md`, eller planera write-policies nar SELECT-testerna ar grona. Ingen service role i frontend; inga write-policies ar aktiverade an.
+
 ## Syntax och kvalitet
 
 - SQL ar skriven for Postgres/Supabase med `pgcrypto` extension.
