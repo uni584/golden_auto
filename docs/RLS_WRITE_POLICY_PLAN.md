@@ -2,7 +2,7 @@
 
 Detta dokument beskriver skrivstrategi for Golden Auto och vad som **redan ar implementerat** vs **aterstar**.
 
-**Relaterat:** `docs/RLS_POLICY_PLAN.md` (SELECT + helpers), `docs/RLS_VERIFICATION_PLAN.md` (test/ regression).
+**Relaterat:** `docs/RLS_POLICY_PLAN.md` (SELECT + helpers), `docs/RLS_VERIFICATION_PLAN.md` (test/ regression), `docs/RECEIPTS_AND_REGISTRATION_SECURITY_PLAN.md` (receipts + regnr — nästa steg).
 
 ## Implementerat: `0005_initial_write_policies.sql`
 
@@ -34,6 +34,8 @@ Migrationen inför **endast** `INSERT`/`UPDATE` RLS (inga `DELETE`) for:
 **Registreringsnummer / PII:** RLS stopp **inte** klienten fran att skicka godtyckligt innehall i `reg_number_ciphertext` / `reg_number_hash` / `reg_number_last4` om raden annars passerar policy. **Rekommendation:** framtida **saker RPC eller backend** som normaliserar, hashar och krypterar innan klient-write begransas ytterligare eller ersatts.
 
 **Ej i 0006:** `receipts`; membership- eller tenant/workshop-admin-skrivningar; regnr-RPC.
+
+**Planering (receipts + registreringsnummer):** Beslut och ordning för nästa implementation finns i **`docs/RECEIPTS_AND_REGISTRATION_SECURITY_PLAN.md`**. Kort rekommendation: **RPC/server-side först** för kvitton och för regnr-fält; **regnr-härdning före eller tillsammans med** första receipts-skrivning för att minska sammansatt risk.
 
 **Automatiserad write-regression (pgTAP):** `supabase/tests/database/rls_write_policies.test.sql` (**66** test, `plan(66)`). Kor med `npx supabase db reset` och `npx supabase test db` tillsammans med SELECT-sviten (**98** tester totalt med SELECT). Syntetiska `auth.users`, tenants/workshops, medlemskap och domandata; `rollback` i slutet av testfilen.
 
@@ -214,6 +216,8 @@ Nedan: **INSERT** / **UPDATE** / **DELETE**, **scope** (tenant/workshop), **WITH
 
 ### 5.12 `receipts`
 
+Uppdaterad sakerhets- och implementationsvagledning: **`docs/RECEIPTS_AND_REGISTRATION_SECURITY_PLAN.md`**.
+
 | | Beslut |
 |---|--------|
 | **INSERT** | **Primart RPC** eller **admin/owner** endast; **WITH CHECK** stammer fran samma workshop och belopp ar rimliga (validering i RPC). **Receptionist:** **ej** skapa kvitto i forsta version om ekonomisk risk. |
@@ -265,4 +269,4 @@ Efter varje steg: utoka `supabase/tests/database/*.test.sql` med write-negative/
 
 ---
 
-*Avsnitt 5 beskriver fortfarande helhetsbeslut; operativ skriv for `vehicles`/`work_orders`/`tire_hotel` ar implementerad i **0006** (se avsnitt "Implementerat: 0006"). **Nasta write-lager:** `receipts` och/eller RPC for regnr enligt avsnitt 4–6.*
+*Avsnitt 5 beskriver fortfarande helhetsbeslut; operativ skriv for `vehicles`/`work_orders`/`tire_hotel` ar implementerad i **0006** (se avsnitt "Implementerat: 0006"). **Nasta steg:** se **`docs/RECEIPTS_AND_REGISTRATION_SECURITY_PLAN.md`** for receipts-strategi, regnr-RPC och foreslagen migrationsordning.*

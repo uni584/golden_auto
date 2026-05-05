@@ -36,6 +36,8 @@ Detta dokument beskriver antaganden och avgransningar for det forsta schemautkas
   - gora jamforelser via hash
   - hantera dekryptering kontrollerat i applikations- eller DB-lager senare
 
+**Nasta steg (sakerhet, dokumentation):** `docs/RECEIPTS_AND_REGISTRATION_SECURITY_PLAN.md` beskriver rekommenderad strategi for **kvitton** och **hardare regnr-hantering** (RPC/backend, audit, migrationsordning) utan att andra nuvarande migrationer.
+
 ## Audit-forberedelse
 
 - Alla centrala tabeller har `created_at` och `updated_at`.
@@ -178,6 +180,7 @@ Nasta steg: kor syntetisk RLS-testdata + testsvit enligt `docs/RLS_VERIFICATION_
 ## Write-policies
 
 - Detaljplan: **`docs/RLS_WRITE_POLICY_PLAN.md`** (inkl. `0005` + `0006`).
+- Receipts + registreringsnummer (nasta steg): **`docs/RECEIPTS_AND_REGISTRATION_SECURITY_PLAN.md`**.
 - Overgripande: **`docs/RLS_POLICY_PLAN.md`**.
 
 ### Migration `0005_initial_write_policies.sql`
