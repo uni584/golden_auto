@@ -88,3 +88,7 @@ credentials.json
 *.pem
 *.key
 .credentials
+
+# Supabase local runtime files
+supabase/.branches/
+supabase/.temp/
