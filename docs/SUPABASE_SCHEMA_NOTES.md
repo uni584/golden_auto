@@ -169,6 +169,12 @@ Nasta steg: kor syntetisk RLS-testdata + testsvit enligt `docs/RLS_VERIFICATION_
 - Syntetiska `auth.users` och domandata endast; ingen riktig kunddata.
 - Senast kord: **32/32 PASS** (lokal Supabase via `npx`). Se aven `docs/RLS_VERIFICATION_PLAN.md` for tackning mot manuella T1–T17.
 
+## Write-policies (plan, ej implementerat)
+
+- Detaljplan: **`docs/RLS_WRITE_POLICY_PLAN.md`** (INSERT/UPDATE per tabell, WITH CHECK, DELETE skjuts upp, RPC vs klient, `created_by`/`updated_by`).
+- Overgripande koppling: **`docs/RLS_POLICY_PLAN.md`** (SELECT + lank till write-plan).
+- Inga migrationer for write har skapats an; `viewer` ska inte fa skrivratt; membership-tabeller ska inte styras av vanlig klient-write.
+
 ## Syntax och kvalitet
 
 - SQL ar skriven for Postgres/Supabase med `pgcrypto` extension.

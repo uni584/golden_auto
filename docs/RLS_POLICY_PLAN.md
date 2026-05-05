@@ -104,15 +104,18 @@ Migration: `supabase/migrations/0004_rls_select_hardening.sql`
   - testa med staging-data att inga infinite recursion-fel uppstar pa SELECT.
 - Framtida strategi: introducera FORCE RLS forst nar write-policies och ev. separata "policy-safe" interna funktioner ar pa plats och verifieringsplanen ar gron.
 
-## Nasta steg: write-policies (0005+)
+## Write-policies (planeras, ej implementerade)
 
-- Definiera separata write-regler per tabell:
-  - `owner/admin`: tenant/workshop administration
-  - `mechanic/receptionist`: operativa tabeller enligt arbetsflode
-  - `viewer`: normalt read-only
-- Lagg till `WITH CHECK`-policies for att forhindra cross-tenant/workshop writes.
-- Hard-koppla `created_by`/`updated_by` till `auth.uid()` via policies/triggers dar relevant.
-- Overvag `FORCE ROW LEVEL SECURITY` nar drift/setupfloden ar etablerade.
+**Detaljerad skrivmatris, WITH CHECK, DELETE-strategi och RPC-krav:** se **`docs/RLS_WRITE_POLICY_PLAN.md`**.
+
+Kort sammanfattning av nasta implementationsfas:
+
+- `viewer`: ingen skrivratt via RLS.
+- `tenant_members` / `workshop_members` / kansliga ekonomiska floden: **forbli utan klient-write** eller endast **saker RPC** enligt planen.
+- Forsta migration efter plan: rekommenderas **profiles** (self-update) + operativa tabeller `customers`, `bookings`, `quotes`, `quote_items`; sedan `vehicles`, `work_orders`, `tire_hotel`, `receipts` (receipts mest restriktiv / RPC).
+- `DELETE`-policies: skjuts upp till soft-delete/archive ar pa plats.
+- Triggers for `created_by`/`updated_by` + strikta `WITH CHECK` pa `tenant_id`/`workshop_id`.
+- `FORCE ROW LEVEL SECURITY`: se avsnitt ovan; fortfarande medvetet senarelagt.
 
 ## Sakerhetsrisker och antaganden
 
@@ -154,4 +157,4 @@ Kvar efter `0004`:
 
 - Kor full testsvit i `docs/RLS_VERIFICATION_PLAN.md` (inkl. nya fall efter hardning).
 - Planera FORCE RLS separat (se avsnitt ovan).
-- Write-policies (`0005+`) med `WITH CHECK` och rollmatris.
+- Implementera write-policies enligt **`docs/RLS_WRITE_POLICY_PLAN.md`** (migration `0005+`); SELECT-regression ska forbli gron.
