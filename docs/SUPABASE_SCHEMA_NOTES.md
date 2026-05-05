@@ -108,6 +108,23 @@ Tekniska tillagg for integrity:
 - Definiera hur systemaktorer/bakgrundsjobb ska representeras utan service-role-bypass.
 - Lasa ner skrivrattigheter sa att auditlogg i senare fas skrivs server-side/saker RPC, inte direkt fran klient.
 
+## RLS helper + SELECT isolation (0003)
+
+Migration: `supabase/migrations/0003_rls_helpers_and_select_policies.sql`
+
+Kort sammanfattning:
+
+- Fyra helper-funktioner tillagda for RLS:
+  - `current_user_is_active_tenant_member(tenant_id uuid)`
+  - `current_user_has_tenant_role(tenant_id uuid, roles text[])`
+  - `current_user_has_workshop_access(tenant_id uuid, workshop_id uuid)`
+  - `current_user_has_workshop_role(tenant_id uuid, workshop_id uuid, roles text[])`
+- Funktionerna bygger pa `auth.uid()` och returnerar endast true for `active` medlemskap.
+- Funktionerna ar skapade som `stable security definer` med satt `search_path` for robust RLS-anvandning.
+- RLS ar nu `enabled` pa tenant-, membership- och domantabeller.
+- Endast `SELECT`-policies ar tillagda i detta steg; write-policies ar avsiktligt utelamnat.
+- Tenant/workshop-isolering ar nu forberedd for kanslig data (inkl. fordon/registreringsnummer) via medlemskap och workshop-access.
+
 ## Syntax och kvalitet
 
 - SQL ar skriven for Postgres/Supabase med `pgcrypto` extension.
