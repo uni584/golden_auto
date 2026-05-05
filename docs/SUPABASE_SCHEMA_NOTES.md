@@ -142,6 +142,15 @@ Rekommendation:
 
 - Fortsatt till write-policy design ar mojligt, men endast efter att verifieringssviten passerat enligt `docs/RLS_VERIFICATION_PLAN.md`.
 
+## SELECT-hardning (0004)
+
+Migration: `supabase/migrations/0004_rls_select_hardening.sql`
+
+- RLS-helper-funktioner: `REVOKE EXECUTE` fran `PUBLIC` och `anon`; `GRANT EXECUTE` endast till `authenticated`.
+- `profiles` SELECT-policy: egen profil alltid; andras profiler endast for tenant `owner`/`admin` nar mal-anvandaren har `active` medlemskap i samma tenant.
+- `workshops` SELECT-policy: tenant `owner`/`admin` med aktivt medlemskap far lasa alla workshops i tenant; ovriga roller behover `active` workshop-medlemskap per workshop.
+- `FORCE ROW LEVEL SECURITY` infors inte i detta steg (risk for recursion med nuvarande helper-design); se `docs/RLS_POLICY_PLAN.md`.
+
 ## Syntax och kvalitet
 
 - SQL ar skriven for Postgres/Supabase med `pgcrypto` extension.

@@ -41,12 +41,12 @@ Varfor helper functions behovs:
 - `tenant_select_scoped` pa `tenants`
   - Lasning tillaten endast for tenants dar anvandaren ar `active` tenant-member.
 
-- `workshops_select_scoped` pa `workshops`
-  - Lasning tillaten endast for workshops dar anvandaren har `active` workshop-access.
+- `workshops_select_scoped` pa `workshops` (0003; se hardning i `0004`)
+  - Bas: `active` workshop-medlemskap ger lasning av den workshopen.
+  - Efter `0004`: `owner`/`admin` med aktivt tenant-medlemskap far lasa alla workshops inom samma tenant aven utan `workshop_members`-rad (SaaS-/tenant-admin).
 
-- `profiles_select_scoped` pa `profiles`
-  - Anvandaren kan lasa egen profil.
-  - Anvandaren kan lasa profiler for andra anvandare inom samma aktiva tenant.
+- `profiles_select_scoped` pa `profiles` (0003; se hardning i `0004`)
+  - Efter `0004`: egen profil alltid; andras profiler endast om mal-anvandaren har `active` tenant-medlemskap och lasaren ar `owner`/`admin` i samma tenant. Ovriga roller far inte automatiskt lasa kollegors profiler.
 
 - `tenant_members_select_scoped` pa `tenant_members`
   - Anvandaren kan lasa egna medlemskapsrader.
@@ -87,7 +87,24 @@ Roller: `owner`, `admin`, `mechanic`, `receptionist`, `viewer`.
 - Ingen policy for audit-logg-skrivning fran klient.
 - Ingen kolumnniva-masking av kansliga falt (t.ex. regnr-ciphertext/last4) i SQL-vyer an.
 
-## Nasta steg: write-policies (0004+)
+## SELECT-hardning (0004)
+
+Migration: `supabase/migrations/0004_rls_select_hardening.sql`
+
+- **Helper EXECUTE:** `REVOKE EXECUTE` fran `PUBLIC` och `anon` pa alla fyra RLS-helpers; `GRANT EXECUTE` endast till `authenticated`. Motivering: minska anonym/extra yta for membership-probing; helpers ar avsedda for autentiserade klienter och policy-evaluering.
+- **`profiles`:** policy ersatt med self + owner/admin for aktiva medlemmar i samma tenant (ingen cross-tenant).
+- **`workshops`:** tenant `owner`/`admin` far lista alla workshops i tenant utan workshop_membership; ovriga roller behover `active` workshop-access som tidigare.
+
+## FORCE ROW LEVEL SECURITY (medvetet ej i 0004)
+
+- `FORCE ROW LEVEL SECURITY` aktiveras **inte** har: det kan fa Postgres att tillampa RLS aven for table owner och riskerar svarigheter med `SECURITY DEFINER`-helpers som laser `tenant_members`/`workshop_members` (mojlig policy-recursion eller blokering om policies inte ar omformulerade).
+- Innan FORCE RLS:
+  - verifiera alla policies som anropar helpers mot `tenant_members`/`workshop_members`;
+  - overvag dedikerade `SECURITY DEFINER`-lasvagar eller `BY PASSRLS`-begransade roller endast for kontrollerad server-side drift;
+  - testa med staging-data att inga infinite recursion-fel uppstar pa SELECT.
+- Framtida strategi: introducera FORCE RLS forst nar write-policies och ev. separata "policy-safe" interna funktioner ar pa plats och verifieringsplanen ar gron.
+
+## Nasta steg: write-policies (0005+)
 
 - Definiera separata write-regler per tabell:
   - `owner/admin`: tenant/workshop administration
@@ -116,12 +133,12 @@ Granskad yta:
 - risk for cross-tenant access
 - risk for for bred profile/membership-lasning
 
-Identifierade risker/observationer:
+Identifierade risker/observationer (0003; delvis atgardade i 0004):
 
-- **R1 - Function execute scope:** helper functions har `grant execute ... to authenticated`, men explicit revoke fran `public`/`anon` ar inte dokumenterad i `0003`. Detta kan ge oonskad boolean-oracle-yta i miljor dar `public` fortfarande har execute.
-- **R2 - Profile breadth:** `profiles_select_scoped` later all aktiva medlemmar i samma tenant lasa varandras profiler. Detta kan vara bredare an minsta nodvandiga dataatkomst beroende pa vilka PII-falt som fylls i `profiles`.
-- **R3 - Future FORCE RLS recursion hazard:** om `FORCE ROW LEVEL SECURITY` senare aktiveras pa `tenant_members`/`workshop_members` utan separat strategi kan helper-funktioner som laser dessa tabeller trigga recursion/policy-loop.
-- **R4 - Workshop visibility design tradeoff:** `workshops_select_scoped` kraver workshop-membership. Tenant owner/admin utan explicit workshop_members-rad far ingen workshop-listning. Detta ar inte datalacka, men kan ge oavsiktlig hard blockering i drift.
+- **R1 - Function execute scope:** atgardad i `0004` (revoke fran `PUBLIC`/`anon`, grant endast `authenticated`).
+- **R2 - Profile breadth:** atgardad i `0004` (endast owner/admin ser andras profiler, och endast for `active` tenant-medlemmar i samma tenant).
+- **R3 - Future FORCE RLS recursion hazard:** oforandrat; FORCE RLS infors inte i `0004` (se avsnitt ovan).
+- **R4 - Workshop visibility design tradeoff:** atgardad i `0004` for tenant `owner`/`admin` (workshop-listning inom tenant utan workshop_membership).
 
 Bedomning:
 
@@ -131,13 +148,10 @@ Bedomning:
 
 ## Rekommendation innan write-policies
 
-Status: **Redo med villkorad hardning**.
+Status efter `0004`: **narmare produktion**, fortfarande **krav pa gron verifieringssvit** fore write-policies.
 
-Innan eller i samband med write-policy-migrationen bor foljande goras:
+Kvar efter `0004`:
 
-- Revoke execute pa helper-funktioner fran roller som inte ska kunna kalla dem (minst `public`, ev. `anon`) och behall explicit grant till `authenticated`.
-- Besluta om `profiles` ska vara:
-  - self-only for icke-admin roller, eller
-  - tenant-shared med faltbegransning via vyer.
-- Definiera strategi innan ev. `FORCE RLS` aktiveras pa membership-tabeller for att undvika recursion.
-- Verifiera med testsvit i `docs/RLS_VERIFICATION_PLAN.md` och krava full PASS fore write-policies.
+- Kor full testsvit i `docs/RLS_VERIFICATION_PLAN.md` (inkl. nya fall efter hardning).
+- Planera FORCE RLS separat (se avsnitt ovan).
+- Write-policies (`0005+`) med `WITH CHECK` och rollmatris.

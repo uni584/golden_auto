@@ -1,6 +1,6 @@
 # RLS VERIFICATION PLAN (PRE-WRITE POLICIES)
 
-Detta dokument beskriver en saker verifieringsfas for `0003_rls_helpers_and_select_policies.sql` innan write-policies byggs.
+Detta dokument beskriver en saker verifieringsfas for RLS SELECT-lagret (`0003` + hardning `0004`) innan write-policies byggs.
 
 ## 1) Mal med verifieringsfasen
 
@@ -27,6 +27,7 @@ Anvandarprofiler (auth.users + membership):
 - A_mechanic_A1 (mechanic, tenant A, workshop A1)
 - A_receptionist_A2 (receptionist, tenant A, workshop A2)
 - A_viewer_A1 (viewer, tenant A, workshop A1)
+- A_tenant_owner_no_workshop (owner, tenant A, **saknar** `workshop_members`-rader; endast `tenant_members`)
 - B_owner (owner, tenant B, workshop B1)
 - No_membership_user (ingen tenant_members rad)
 - Suspended_user_A (tenant_members/workshop_members = suspended)
@@ -151,6 +152,36 @@ Hogst prioritet (mest kritiska):
 - PASS: flera rader inom tenant A syns, inga fran tenant B
 - FAIL: tenant B rader syns eller tenant A blockerad
 
+### T13: Viewer kan inte lasa annan anvandares profil (samma tenant)
+- User: A_viewer_A1
+- Query: `select user_id from public.profiles where user_id = <a_mechanic_a1_user_id>;`
+- PASS: 0 rader
+- FAIL: >=1 rad
+
+### T14: Owner kan lasa aktiv kollegas profil (samma tenant)
+- User: A_owner
+- Query: `select user_id from public.profiles where user_id = <a_mechanic_a1_user_id>;`
+- PASS: 1 rad (mekanikern ar `active` tenant-medlem i A)
+- FAIL: 0 rader
+
+### T15: Tenant owner/admin utan workshop_membership kan lista workshops i tenant
+- User: A_tenant_owner_no_workshop
+- Query: `select id from public.workshops where tenant_id = <tenant_a_id>;`
+- PASS: rader for A1 och A2 (minst 2 om tva workshops finns)
+- FAIL: 0 rader
+
+### T16: Tenant owner utan workshop_membership har fortfarande inte workshop-scoped domandata
+- User: A_tenant_owner_no_workshop
+- Query: `select id from public.bookings where workshop_id = <workshop_a1_id>;`
+- PASS: 0 rader (policy kraver fortfarande workshop-access)
+- FAIL: >=1 rad
+
+### T17: Helper functions ar inte kallbara som anon (om session kan sattas till anon)
+- Session: `request.jwt.claim.role = anon` (eller motsvarande test)
+- Query: `select public.current_user_is_active_tenant_member('<tenant_a_id>'::uuid);`
+- PASS: fel eller nekad execute / inget resultat som avslöjar medlemskap
+- FAIL: funktionen returnerar konsekvent true/false for utomstaende
+
 ## 6) Kompletterande granskningskontroller
 
 - Kontrollera att helper functions har:
@@ -159,12 +190,13 @@ Hogst prioritet (mest kritiska):
   - `stable`
 - Kontrollera att inga policies innehaller oavsiktlig broad `true`-logik.
 - Kontrollera att policy beroenden inte skapar recursion-fel vid SELECT.
+- Efter `0004`: kontrollera `REVOKE ... FROM PUBLIC, anon` och `GRANT ... TO authenticated` for alla fyra helpers (t.ex. `\df+` / `information_schema`).
 
 ## 7) Beslutskriterier: redo for write-policies
 
 RLS SELECT-lagret ar redo for nasta steg om:
 
-- Samtliga T1-T12 passerar.
+- Samtliga T1-T17 passerar (eller motsvarande minima om T17 inte ar mojlig i vald testrigg).
 - Inga cross-tenant/cross-workshop rader returneras.
 - Suspended/revoked/no-membership ar konsekvent blockerade.
 - Inga recursion- eller policy-evalueringsfel uppstar.
