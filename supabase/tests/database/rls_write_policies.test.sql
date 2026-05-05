@@ -1,7 +1,7 @@
--- RLS write policy tests for migration 0005 (synthetic data only)
+-- RLS write policy tests for migrations 0005–0006 (synthetic data only)
 --
 -- Assumptions:
---   * Runs after migrations 0001–0005.
+--   * Runs after migrations 0001–0006.
 --   * Seed INSERTs run as session superuser (RLS bypass). DML tests use SET LOCAL ROLE authenticated.
 --   * Receptionist write in 0005 requires BOTH:
 --       - tenant_members.role = 'receptionist' AND membership_status = 'active'
@@ -161,7 +161,7 @@ values
 -- ---------------------------------------------------------------------------
 -- pgTAP plan: lives_ok / throws_matching / is (32 SELECT-svit ar separat fil)
 -- ---------------------------------------------------------------------------
-select plan(44);
+select plan(66);
 
 -- profiles: self update OK
 select lives_ok(
@@ -529,29 +529,239 @@ select throws_matching(
   'W36: cannot insert workshop_members'
 );
 
--- vehicles
+-- vehicles (0006): owner/admin/receptionist scoped; mechanic/viewer blocked
+select lives_ok(
+  $q$select pg_temp.run_as('f7000001-0000-4000-8000-000000000001'::uuid,
+    $i$insert into public.vehicles (id, tenant_id, customer_id, workshop_id, make, model, reg_number_ciphertext, reg_number_hash, reg_number_last4)
+     values ('d7000a01-0000-4000-8000-000000000001', '70000001-0000-4000-8000-000000000001', 'c7000001-0000-4000-8000-000000000001', '70100001-0000-4000-8000-000000000001',
+             'Synth', 'VehOwn', 'enc-vo', decode('a1a1a1', 'hex'), 'vo01');$i$
+  );$q$,
+  'W37: owner inserts vehicle in A1'
+);
+
+select lives_ok(
+  $q$select pg_temp.run_as('f7000003-0000-4000-8000-000000000001'::uuid,
+    $i$insert into public.vehicles (id, tenant_id, customer_id, workshop_id, make, model, reg_number_ciphertext, reg_number_hash, reg_number_last4)
+     values ('d7000a02-0000-4000-8000-000000000002', '70000001-0000-4000-8000-000000000001', 'c7000001-0000-4000-8000-000000000001', '70100001-0000-4000-8000-000000000001',
+             'Synth', 'VehRec', 'enc-vr', decode('a2a2a2', 'hex'), 'vr01');$i$
+  );$q$,
+  'W38: receptionist inserts vehicle in A1 (workshop access)'
+);
+
+select throws_matching(
+  $q$select pg_temp.run_as('f7000003-0000-4000-8000-000000000001'::uuid,
+    $i$insert into public.vehicles (id, tenant_id, customer_id, workshop_id, make, model, reg_number_ciphertext, reg_number_hash, reg_number_last4)
+     values ('d7000a03-0000-4000-8000-000000000003', '70000001-0000-4000-8000-000000000001', 'c7000002-0000-4000-8000-000000000002', '70200001-0000-4000-8000-000000000002',
+             'Synth', 'Bad', 'enc', decode('a3a3a3', 'hex'), 'xx01');$i$
+  );$q$,
+  'row-level security',
+  'W39: receptionist cannot insert vehicle for A2 (no workshop access)'
+);
+
+select throws_matching(
+  $q$select pg_temp.run_as('f7000004-0000-4000-8000-000000000001'::uuid,
+    $i$insert into public.vehicles (id, tenant_id, customer_id, workshop_id, make, model, reg_number_ciphertext, reg_number_hash, reg_number_last4)
+     values ('d7000a04-0000-4000-8000-000000000004', '70000001-0000-4000-8000-000000000001', 'c7000001-0000-4000-8000-000000000001', '70100001-0000-4000-8000-000000000001',
+             'Synth', 'Mech', 'enc', decode('a4a4a4', 'hex'), 'm401');$i$
+  );$q$,
+  'row-level security',
+  'W40: mechanic cannot insert vehicle'
+);
+
+select throws_matching(
+  $q$select pg_temp.run_as('f7000005-0000-4000-8000-000000000001'::uuid,
+    $i$insert into public.vehicles (id, tenant_id, customer_id, workshop_id, make, model, reg_number_ciphertext, reg_number_hash, reg_number_last4)
+     values ('d7000a05-0000-4000-8000-000000000005', '70000001-0000-4000-8000-000000000001', 'c7000002-0000-4000-8000-000000000002', '70200001-0000-4000-8000-000000000002',
+             'Synth', 'View', 'enc', decode('a5a5a5', 'hex'), 'vw01');$i$
+  );$q$,
+  'row-level security',
+  'W41: viewer cannot insert vehicle'
+);
+
 select throws_matching(
   $q$select pg_temp.run_as('f7000001-0000-4000-8000-000000000001'::uuid,
     $i$insert into public.vehicles (id, tenant_id, customer_id, workshop_id, make, model, reg_number_ciphertext, reg_number_hash, reg_number_last4)
-     values ('d70000ff-0000-4000-8000-0000000000ff', '70000001-0000-4000-8000-000000000001', 'c7000001-0000-4000-8000-000000000001', '70100001-0000-4000-8000-000000000001',
-             'X', 'Y', 'enc', decode('00ffaa', 'hex'), 'zz99');$i$
+     values ('d7000a06-0000-4000-8000-000000000006', '70000001-0000-4000-8000-000000000001', 'c7000003-0000-4000-8000-000000000003', '70100001-0000-4000-8000-000000000001',
+             'Synth', 'Xtn', 'enc', decode('a6a6a6', 'hex'), 'xt01');$i$
   );$q$,
   'row-level security',
-  'W37: cannot insert vehicle as authenticated'
+  'W42: vehicle insert blocked when customer is from tenant B'
 );
 
--- work_orders
+select lives_ok(
+  $q$select pg_temp.run_as('f7000001-0000-4000-8000-000000000001'::uuid,
+    $i$update public.vehicles set color = 'Blue' where id = 'd7000a01-0000-4000-8000-000000000001'::uuid;$i$
+  );$q$,
+  'W43: owner updates vehicle'
+);
+
 select throws_matching(
   $q$select pg_temp.run_as('f7000001-0000-4000-8000-000000000001'::uuid,
-    $i$insert into public.work_orders (id, tenant_id, workshop_id, customer_id, vehicle_id, work_order_number, status)
-     values ('e7000001-0000-4000-8000-000000000001', '70000001-0000-4000-8000-000000000001', '70100001-0000-4000-8000-000000000001',
-             'c7000001-0000-4000-8000-000000000001', 'd7000001-0000-4000-8000-000000000001', 'WWO-1', 'draft');$i$
+    $i$update public.vehicles set tenant_id = '70000002-0000-4000-8000-000000000002' where id = 'd7000a01-0000-4000-8000-000000000001'::uuid;$i$
   );$q$,
-  'row-level security',
-  'W38: cannot insert work_order'
+  '(row-level security policy|tenant_id cannot be changed)',
+  'W44: vehicle tenant_id immutable'
 );
 
--- receipts
+select throws_matching(
+  $q$select pg_temp.run_as('e7000001-0000-4000-8000-000000000001'::uuid,
+    $i$insert into public.vehicles (id, tenant_id, customer_id, workshop_id, make, model, reg_number_ciphertext, reg_number_hash, reg_number_last4)
+     values ('d7000a07-0000-4000-8000-000000000007', '70000001-0000-4000-8000-000000000001', 'c7000001-0000-4000-8000-000000000001', '70100001-0000-4000-8000-000000000001',
+             'Synth', 'Nomem', 'enc', decode('a7a7a7', 'hex'), 'nm01');$i$
+  );$q$,
+  'row-level security',
+  'W45: no membership cannot insert vehicle'
+);
+
+-- work_orders (0006): owner/admin + mechanic (workshop); receptionist/viewer blocked
+select lives_ok(
+  $q$select pg_temp.run_as('f7000001-0000-4000-8000-000000000001'::uuid,
+    $i$insert into public.work_orders (id, tenant_id, workshop_id, booking_id, customer_id, vehicle_id, work_order_number, status)
+     values ('ab700001-0000-4000-8000-000000000001', '70000001-0000-4000-8000-000000000001', '70100001-0000-4000-8000-000000000001',
+             'b7000001-0000-4000-8000-000000000001', 'c7000001-0000-4000-8000-000000000001', 'd7000a01-0000-4000-8000-000000000001', 'WWO-OWN', 'draft');$i$
+  );$q$,
+  'W46: owner inserts work_order A1'
+);
+
+select lives_ok(
+  $q$select pg_temp.run_as('f7000004-0000-4000-8000-000000000001'::uuid,
+    $i$insert into public.work_orders (id, tenant_id, workshop_id, booking_id, customer_id, vehicle_id, work_order_number, status)
+     values ('ab700002-0000-4000-8000-000000000002', '70000001-0000-4000-8000-000000000001', '70100001-0000-4000-8000-000000000001',
+             null, 'c7000001-0000-4000-8000-000000000001', 'd7000001-0000-4000-8000-000000000001', 'WWO-MEC', 'draft');$i$
+  );$q$,
+  'W47: mechanic inserts work_order in A1'
+);
+
+select throws_matching(
+  $q$select pg_temp.run_as('f7000003-0000-4000-8000-000000000001'::uuid,
+    $i$insert into public.work_orders (id, tenant_id, workshop_id, booking_id, customer_id, vehicle_id, work_order_number, status)
+     values ('ab700003-0000-4000-8000-000000000003', '70000001-0000-4000-8000-000000000001', '70100001-0000-4000-8000-000000000001',
+             null, 'c7000001-0000-4000-8000-000000000001', 'd7000001-0000-4000-8000-000000000001', 'WWO-REC', 'draft');$i$
+  );$q$,
+  'row-level security',
+  'W48: receptionist cannot insert work_order'
+);
+
+select throws_matching(
+  $q$select pg_temp.run_as('f7000005-0000-4000-8000-000000000001'::uuid,
+    $i$insert into public.work_orders (id, tenant_id, workshop_id, booking_id, customer_id, vehicle_id, work_order_number, status)
+     values ('ab700004-0000-4000-8000-000000000004', '70000001-0000-4000-8000-000000000001', '70100001-0000-4000-8000-000000000001',
+             null, 'c7000001-0000-4000-8000-000000000001', 'd7000001-0000-4000-8000-000000000001', 'WWO-VWR', 'draft');$i$
+  );$q$,
+  'row-level security',
+  'W49: viewer cannot insert work_order in A1'
+);
+
+select throws_matching(
+  $q$select pg_temp.run_as('f7000001-0000-4000-8000-000000000001'::uuid,
+    $i$insert into public.work_orders (id, tenant_id, workshop_id, booking_id, customer_id, vehicle_id, work_order_number, status)
+     values ('ab700005-0000-4000-8000-000000000005', '70000001-0000-4000-8000-000000000001', '70100001-0000-4000-8000-000000000001',
+             null, 'c7000001-0000-4000-8000-000000000001', 'd7000003-0000-4000-8000-000000000003', 'WWO-BAD', 'draft');$i$
+  );$q$,
+  'row-level security',
+  'W50: work_order insert blocked when vehicle is from tenant B'
+);
+
+select throws_matching(
+  $q$select pg_temp.run_as('f7000001-0000-4000-8000-000000000001'::uuid,
+    $i$insert into public.work_orders (id, tenant_id, workshop_id, booking_id, customer_id, vehicle_id, work_order_number, status)
+     values ('ab700006-0000-4000-8000-000000000006', '70000001-0000-4000-8000-000000000001', '70100001-0000-4000-8000-000000000001',
+             'b70000a2-0000-4000-8000-0000000000a2', 'c7000001-0000-4000-8000-000000000001', 'd7000001-0000-4000-8000-000000000001', 'WWO-BKG', 'draft');$i$
+  );$q$,
+  'row-level security',
+  'W51: work_order insert blocked when booking workshop mismatches'
+);
+
+select throws_matching(
+  $q$select pg_temp.run_as('f7000004-0000-4000-8000-000000000001'::uuid,
+    $i$insert into public.work_orders (id, tenant_id, workshop_id, booking_id, customer_id, vehicle_id, work_order_number, status)
+     values ('ab700007-0000-4000-8000-000000000007', '70000001-0000-4000-8000-000000000001', '70200001-0000-4000-8000-000000000002',
+             null, 'c7000002-0000-4000-8000-000000000002', 'd7000002-0000-4000-8000-000000000002', 'WWO-A2X', 'draft');$i$
+  );$q$,
+  'row-level security',
+  'W52: mechanic cannot insert work_order in A2 (no access)'
+);
+
+select lives_ok(
+  $q$select pg_temp.run_as('f7000001-0000-4000-8000-000000000001'::uuid,
+    $i$update public.work_orders set notes = 'wo note' where id = 'ab700001-0000-4000-8000-000000000001'::uuid;$i$
+  );$q$,
+  'W53: owner updates work_order'
+);
+
+select throws_matching(
+  $q$select pg_temp.run_as('f7000001-0000-4000-8000-000000000001'::uuid,
+    $i$update public.work_orders set tenant_id = '70000002-0000-4000-8000-000000000002' where id = 'ab700001-0000-4000-8000-000000000001'::uuid;$i$
+  );$q$,
+  '(row-level security policy|tenant_id cannot be changed)',
+  'W54: work_order tenant_id immutable'
+);
+
+-- tire_hotel (0006)
+select lives_ok(
+  $q$select pg_temp.run_as('f7000003-0000-4000-8000-000000000001'::uuid,
+    $i$insert into public.tire_hotel (id, tenant_id, workshop_id, customer_id, vehicle_id, storage_code, season, status)
+     values ('ac700001-0000-4000-8000-000000000001', '70000001-0000-4000-8000-000000000001', '70100001-0000-4000-8000-000000000001',
+             'c7000001-0000-4000-8000-000000000001', 'd7000001-0000-4000-8000-000000000001', 'TH-R01', 'winter', 'stored');$i$
+  );$q$,
+  'W55: receptionist inserts tire_hotel A1'
+);
+
+select lives_ok(
+  $q$select pg_temp.run_as('f7000004-0000-4000-8000-000000000001'::uuid,
+    $i$insert into public.tire_hotel (id, tenant_id, workshop_id, customer_id, vehicle_id, storage_code, season, status)
+     values ('ac700002-0000-4000-8000-000000000002', '70000001-0000-4000-8000-000000000001', '70100001-0000-4000-8000-000000000001',
+             'c7000001-0000-4000-8000-000000000001', 'd7000001-0000-4000-8000-000000000001', 'TH-M01', 'summer', 'stored');$i$
+  );$q$,
+  'W56: mechanic inserts tire_hotel A1'
+);
+
+select throws_matching(
+  $q$select pg_temp.run_as('f7000005-0000-4000-8000-000000000001'::uuid,
+    $i$insert into public.tire_hotel (id, tenant_id, workshop_id, customer_id, vehicle_id, storage_code, season, status)
+     values ('ac700003-0000-4000-8000-000000000003', '70000001-0000-4000-8000-000000000001', '70100001-0000-4000-8000-000000000001',
+             'c7000001-0000-4000-8000-000000000001', 'd7000001-0000-4000-8000-000000000001', 'TH-V01', 'winter', 'stored');$i$
+  );$q$,
+  'row-level security',
+  'W57: viewer cannot insert tire_hotel A1'
+);
+
+select throws_matching(
+  $q$select pg_temp.run_as('f7000003-0000-4000-8000-000000000001'::uuid,
+    $i$insert into public.tire_hotel (id, tenant_id, workshop_id, customer_id, vehicle_id, storage_code, season, status)
+     values ('ac700004-0000-4000-8000-000000000004', '70000001-0000-4000-8000-000000000001', '70200001-0000-4000-8000-000000000002',
+             'c7000002-0000-4000-8000-000000000002', 'd7000002-0000-4000-8000-000000000002', 'TH-A2X', 'winter', 'stored');$i$
+  );$q$,
+  'row-level security',
+  'W58: receptionist cannot insert tire_hotel A2 (no access)'
+);
+
+select throws_matching(
+  $q$select pg_temp.run_as('f7000001-0000-4000-8000-000000000001'::uuid,
+    $i$insert into public.tire_hotel (id, tenant_id, workshop_id, customer_id, vehicle_id, storage_code, season, status)
+     values ('ac700005-0000-4000-8000-000000000005', '70000001-0000-4000-8000-000000000001', '70100001-0000-4000-8000-000000000001',
+             'c7000003-0000-4000-8000-000000000003', 'd7000001-0000-4000-8000-000000000001', 'TH-BAD', 'winter', 'stored');$i$
+  );$q$,
+  'row-level security',
+  'W59: tire_hotel insert blocked when customer from tenant B'
+);
+
+select lives_ok(
+  $q$select pg_temp.run_as('f7000001-0000-4000-8000-000000000001'::uuid,
+    $i$update public.tire_hotel set rack = 'R12' where id = 'ac700001-0000-4000-8000-000000000001'::uuid;$i$
+  );$q$,
+  'W60: owner updates tire_hotel'
+);
+
+select throws_matching(
+  $q$select pg_temp.run_as('f7000001-0000-4000-8000-000000000001'::uuid,
+    $i$update public.tire_hotel set tenant_id = '70000002-0000-4000-8000-000000000002' where id = 'ac700001-0000-4000-8000-000000000001'::uuid;$i$
+  );$q$,
+  '(row-level security policy|tenant_id cannot be changed)',
+  'W61: tire_hotel tenant_id immutable'
+);
+
+-- receipts: still no write policies
 select throws_matching(
   $q$select pg_temp.run_as('f7000001-0000-4000-8000-000000000001'::uuid,
     $i$insert into public.receipts (id, tenant_id, workshop_id, customer_id, vehicle_id, receipt_number, payment_status)
@@ -559,18 +769,7 @@ select throws_matching(
              'c7000001-0000-4000-8000-000000000001', 'd7000001-0000-4000-8000-000000000001', 'WRCP-1', 'unpaid');$i$
   );$q$,
   'row-level security',
-  'W39: cannot insert receipt'
-);
-
--- tire_hotel
-select throws_matching(
-  $q$select pg_temp.run_as('f7000001-0000-4000-8000-000000000001'::uuid,
-    $i$insert into public.tire_hotel (id, tenant_id, workshop_id, customer_id, vehicle_id, storage_code, season, status)
-     values ('03700001-0000-4000-8000-000000000001', '70000001-0000-4000-8000-000000000001', '70100001-0000-4000-8000-000000000001',
-             'c7000001-0000-4000-8000-000000000001', 'd7000001-0000-4000-8000-000000000001', 'TH-X', 'winter', 'stored');$i$
-  );$q$,
-  'row-level security',
-  'W40: cannot insert tire_hotel'
+  'W62: cannot insert receipt as authenticated'
 );
 
 -- receptionist vs workshop_members role: receptionist tenant role + workshop_members required (documented in header)
@@ -585,7 +784,7 @@ select is(
       and wm.workshop_id = '70100001-0000-4000-8000-000000000001'::uuid
   ),
   1::bigint,
-  'W41: receptionist has both tenant_members and workshop_members for A1'
+  'W63: receptionist has both tenant_members and workshop_members for A1'
 );
 
 select * from finish();

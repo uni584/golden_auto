@@ -120,10 +120,18 @@ Migration: `supabase/migrations/0004_rls_select_hardening.sql`
 
 **Ej i 0005:** `DELETE`-policies; skriv till `tenants`, `workshops`, membership, `vehicles`, `work_orders`, `receipts`, `tire_hotel`.
 
-### Nasta implementationsfas (efter 0005)
+### Migration `0006_operational_write_policies.sql` (fordon, arbetsorder, dackhotell)
 
-- `viewer`: fortfarande ingen skrivratt.
-- `tenant_members` / `workshop_members` / `receipts` / `vehicles`: enligt `docs/RLS_WRITE_POLICY_PLAN.md` (RPC eller senare migration).
+- **`vehicles`:** `vehicles_insert_scoped`, `vehicles_update_scoped` — `owner`/`admin`/`receptionist` (**ej** `mechanic`/`viewer`); receptionist kraver `workshop_id` + `current_user_has_workshop_access`; `WITH CHECK` validerar `customers.tenant_id`, `workshops.tenant_id` (om `workshop_id` ar satt); `tenant_id` immutable (trigger); `created_by`/`updated_by` via `tg_set_audit_actor`.
+- **`work_orders`:** `work_orders_insert_scoped`, `work_orders_update_scoped` — `owner`/`admin` **eller** `mechanic` med workshop-access; **ej** `receptionist`/`viewer` (minsta privilegium); `WITH CHECK` validerar workshop i tenant, `customer_id`/`vehicle_id` i samma tenant, valfri `booking_id` mot samma `workshop_id`; `tenant_id` immutable; audit-trigger.
+- **`tire_hotel`:** `tire_hotel_insert_scoped`, `tire_hotel_update_scoped` — `owner`/`admin`, eller `receptionist`/`mechanic` med `current_user_has_workshop_access`; **ej** `viewer`; samma FK-liknande EXISTS-validering for customer/vehicle/workshop; `tenant_id` immutable; audit-trigger.
+
+**Ej i 0006:** `DELETE`-policies; `receipts`; membership- och tenant/workshop-admin-skrivningar; regnr-RPC/kolumnmaskering.
+
+### Nasta implementationsfas (efter 0006)
+
+- `viewer`: fortfarande ingen skrivratt (utover ev. framtida begransade falt — ej planerat har).
+- `tenant_members` / `workshop_members` / `receipts`: enligt `docs/RLS_WRITE_POLICY_PLAN.md` (RPC eller senare migration).
 - `FORCE ROW LEVEL SECURITY`: se avsnitt ovan; fortfarande medvetet senarelagt.
 
 ## Sakerhetsrisker och antaganden

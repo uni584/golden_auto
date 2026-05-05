@@ -169,15 +169,15 @@ Nasta steg: kor syntetisk RLS-testdata + testsvit enligt `docs/RLS_VERIFICATION_
 - Syntetiska `auth.users` och domandata endast; ingen riktig kunddata.
 - Senast kord: **32/32 PASS** (lokal Supabase via `npx`). Se aven `docs/RLS_VERIFICATION_PLAN.md` for tackning mot manuella T1–T17.
 
-## Automatiserad WRITE-RLS regression (0005)
+## Automatiserad WRITE-RLS regression (0005 + 0006)
 
-- Fil: `supabase/tests/database/rls_write_policies.test.sql` (pgTAP, **44** test).
+- Fil: `supabase/tests/database/rls_write_policies.test.sql` (pgTAP, **66** test).
 - Kors av samma `npx supabase test db` som SELECT-sviten efter `db reset`.
-- Senast kord: **44/44 PASS** tillsammans med SELECT (**76** totalt, 32+44). Detaljer och receptionist-/scope-anteckning: `docs/RLS_WRITE_POLICY_PLAN.md`.
+- Senast kord: **66/66 PASS** tillsammans med SELECT (**98** totalt, 32+66). Detaljer: `docs/RLS_WRITE_POLICY_PLAN.md`.
 
 ## Write-policies
 
-- Detaljplan: **`docs/RLS_WRITE_POLICY_PLAN.md`** (inkl. vad som ar implementerat i `0005`).
+- Detaljplan: **`docs/RLS_WRITE_POLICY_PLAN.md`** (inkl. `0005` + `0006`).
 - Overgripande: **`docs/RLS_POLICY_PLAN.md`**.
 
 ### Migration `0005_initial_write_policies.sql`
@@ -185,7 +185,12 @@ Nasta steg: kor syntetisk RLS-testdata + testsvit enligt `docs/RLS_VERIFICATION_
 - `INSERT`/`UPDATE` RLS for: `profiles` (egen `UPDATE`), `customers`, `bookings`, `quotes`, `quote_items`.
 - Roller: `owner`/`admin`/`receptionist` enligt policy (ej `mechanic`/`viewer` for dessa tabeller i detta steg).
 - Triggers: immutable `tenant_id` pa `UPDATE` for namnda tabeller dar lampligt; `created_by`/`updated_by` satts fran `auth.uid()` pa `customers`/`bookings`/`quotes`.
-- **Inga** `DELETE`-policies; inga writes till membership, `vehicles`, `work_orders`, `receipts`, `tire_hotel` har.
+
+### Migration `0006_operational_write_policies.sql`
+
+- `INSERT`/`UPDATE` RLS for: `vehicles`, `work_orders`, `tire_hotel` (se `docs/RLS_WRITE_POLICY_PLAN.md` for rollmatris och regnr-risk).
+- Triggers: `tenant_id` immutable + audit pa samma tabeller.
+- **Inga** `DELETE`-policies; **inga** klient-writes till `receipts`, membership, `tenants`, `workshops`.
 
 ## Syntax och kvalitet
 

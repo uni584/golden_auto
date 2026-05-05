@@ -21,7 +21,21 @@ Migrationen inför **endast** `INSERT`/`UPDATE` RLS (inga `DELETE`-policies) for
 
 **Ej i 0005 (medvetet):** `tenants`, `workshops`, `tenant_members`, `workshop_members`, `vehicles`, `work_orders`, `receipts`, `tire_hotel`; **inga** `DELETE`-policies.
 
-**Automatiserad write-regression (pgTAP):** `supabase/tests/database/rls_write_policies.test.sql` (**44** test, `plan(44)`). Kor med `npx supabase db reset` och `npx supabase test db` tillsammans med SELECT-sviten. Syntetiska `auth.users`, tenants/workshops, medlemskap och domandata; `rollback` i slutet av testfilen.
+## Implementerat: `0006_operational_write_policies.sql`
+
+Migrationen inför **endast** `INSERT`/`UPDATE` RLS (inga `DELETE`) for:
+
+- **`vehicles`** — `vehicles_insert_scoped`, `vehicles_update_scoped`: `owner`/`admin`/`receptionist`; **ej** `mechanic`/`viewer` (regnr/PII-risk). Receptionist: `workshop_id` **not null** + `current_user_has_workshop_access`. Owner/admin: `workshop_id` far vara `null` eller peka pa workshop i samma tenant (`EXISTS` mot `workshops`). `WITH CHECK`/`USING`: `customers.tenant_id` = radens `tenant_id`.
+- **`work_orders`** — `work_orders_insert_scoped`, `work_orders_update_scoped`: `owner`/`admin` **eller** `mechanic` med workshop-access; **ej** `receptionist`/`viewer` (operativ AO hanteras av mekaniker och tenant-admins). `WITH CHECK`: workshop i tenant; `customer_id`/`vehicle_id` i samma tenant; valfri `booking_id` med samma `tenant_id` och `workshop_id` som arbetsordern.
+- **`tire_hotel`** — `tire_hotel_insert_scoped`, `tire_hotel_update_scoped`: `owner`/`admin`, eller `receptionist`/`mechanic` med `current_user_has_workshop_access`; **ej** `viewer`. `WITH CHECK`: workshop + customer + vehicle i samma tenant.
+
+**Triggers i 0006:** `tg_reject_tenant_id_change` pa `vehicles`, `work_orders`, `tire_hotel`; `tg_set_audit_actor` pa samma tabeller (`created_by`/`updated_by`).
+
+**Registreringsnummer / PII:** RLS stopp **inte** klienten fran att skicka godtyckligt innehall i `reg_number_ciphertext` / `reg_number_hash` / `reg_number_last4` om raden annars passerar policy. **Rekommendation:** framtida **saker RPC eller backend** som normaliserar, hashar och krypterar innan klient-write begransas ytterligare eller ersatts.
+
+**Ej i 0006:** `receipts`; membership- eller tenant/workshop-admin-skrivningar; regnr-RPC.
+
+**Automatiserad write-regression (pgTAP):** `supabase/tests/database/rls_write_policies.test.sql` (**66** test, `plan(66)`). Kor med `npx supabase db reset` och `npx supabase test db` tillsammans med SELECT-sviten (**98** tester totalt med SELECT). Syntetiska `auth.users`, tenants/workshops, medlemskap och domandata; `rollback` i slutet av testfilen.
 
 **Tackning (0005):**
 
@@ -30,12 +44,19 @@ Migrationen inför **endast** `INSERT`/`UPDATE` RLS (inga `DELETE`-policies) for
 - **bookings:** owner/admin/receptionist happy path; mechanic insert nekad; fel tenant pa vehicle nekad; receptionist update i A1; viewer utan A1-access kan inte andra A1-rad (verifierat via oforandrat `notes`); `tenant_id`-andring nekad.
 - **quotes:** insert/update for owner/admin/receptionist; `booking_id` fran annat verkstadspar nekad; customer fran annan tenant nekad; mechanic insert nekad; `tenant_id`-andring nekad.
 - **quote_items:** insert/update mot parent quote; fel `tenant_id` mot parent nekad; mechanic nekad; `tenant_id`-andring nekad.
-- **Tabeller utan write-policy:** `INSERT` nekad for `authenticated` pa `tenants`, `workshops`, `tenant_members`, `workshop_members`, `vehicles`, `work_orders`, `receipts`, `tire_hotel`.
-- **Receptionist (implementation vs enkel workshop-roll):** policies i `0005` kraver `tenant_members.role = 'receptionist'` **och** `current_user_has_workshop_access(tenant_id, workshop_id)` for radens verkstad. **Endast** `workshop_members.role = 'receptionist'` utan motsvarande tenant-roll racker **inte**. Test **W41**/`W06`/`W07` stodjer detta. Om produktplanen var "receptionist enbart via workshop_members" ar det en **policy-/plan-mismatch**; atgard = framtida migration (ej denna PR).
+
+**Tackning (0006):**
+
+- **vehicles:** owner/receptionist insert/update i ratt scope; receptionist A2 utan access nekad; mechanic/viewer nekad; customer fran annan tenant nekad; `tenant_id`-andring nekad; no membership nekad.
+- **work_orders:** owner/mechanic insert/update; receptionist/viewer nekad; vehicle fran tenant B nekad; `booking_id` fel verkstad nekad; mechanic utan A2-access nekad A2; `tenant_id`-andring nekad.
+- **tire_hotel:** receptionist/mechanic/owner insert/update; viewer nekad; receptionist utan A2-access nekad; customer B pa tenant A nekad; `tenant_id`-andring nekad.
+- **Fortfarande utan klient-write:** `INSERT` nekad for `authenticated` pa `tenants`, `workshops`, `tenant_members`, `workshop_members`, `receipts` (W33–W36, W62 i write-sviten).
+
+**Receptionist (implementation vs enkel workshop-roll):** policies i `0005`/`0006` for receptionist-skrivning kraver `tenant_members.role = 'receptionist'` **och** `current_user_has_workshop_access` dar workshop kravs. Test **W63**/`W06`/`W07` stodjer detta. Om produktplanen var "receptionist enbart via workshop_members" ar det en **policy-/plan-mismatch**; atgard = framtida migration.
 
 **Kanda luckor / begransningar i write-sviten:**
 
-- Inga `DELETE`-policy-tester (saknas i 0005).
+- Inga `DELETE`-policy-tester (policies saknas avsiktligt).
 - `UPDATE` som inte matchar nagon rad under RLS ger **inget** Postgres-fel; negativa fall for cross-user/cross-workshop kan darfor vara "sidoeffekt"-asserts (data oforandrad), inte `throws_ok`.
 - `tenant_id`-immutability: felmeddelande kan vara RLS **eller** trigger beroende pa evalueringsordning; tester anvander regex som tillater bada.
 - Fordon i negativt `vehicles`-insert: `reg_number_hash` satts med `decode(..., 'hex')` (ingen `digest()` i `authenticated`-session).
@@ -57,7 +78,7 @@ Migrationen inför **endast** `INSERT`/`UPDATE` RLS (inga `DELETE`-policies) for
 | owner      | Ja (inom egen tenant)                            | Ja, brett; kvitto/receipts enligt tabell nedan                      |
 | admin      | Ja (inom egen tenant)                            | Ja, brett; kvitto/receipts enligt tabell nedan                      |
 | mechanic   | Nej                                              | Ja, begransat till verkstads-/AO-/statusfalt                        |
-| receptionist | Nej (i 0005: operativ skriv kraver **tenant**-roll `receptionist` + workshop-access; inte enbart workshop-roll) | Ja, kund/bokning/offert + begransade statusandringar (enligt 0005)   |
+| receptionist | Nej (i 0005/0006: operativ skriv kraver **tenant**-roll `receptionist` + workshop-access dar sa kravs; inte enbart workshop-roll) | Ja: kund/bokning/offert/`vehicles`/`tire_hotel` (0005/0006); **nej** direkt skriv till `work_orders` i 0006   |
 | viewer     | Nej                                              | Nej                                                                  |
 
 **Workshop vs tenant:**  
@@ -229,7 +250,7 @@ Nedan: **INSERT** / **UPDATE** / **DELETE**, **scope** (tenant/workshop), **WITH
 1. **Steg A — "Sakert bottenlager":** triggers for `created_by`/`updated_by` dar kolumner finns; **inga** policies an `tenant_members`/`workshop_members`/`tenants` (klient write fortfarande nekad).
 2. **Steg B — receptionist + admin operativt:** `INSERT`/`UPDATE` policies for `customers`, `bookings`, `quotes`, `quote_items` med strikta `WITH CHECK` + `profiles` self-`UPDATE` endast.
 
-**Steg C (0006):** `vehicles` (garna med RPC-par), `work_orders`, `tire_hotel`, `receipts` (receipts sist eller RPC-only).
+**Steg C (0006):** ~~`vehicles`, `work_orders`, `tire_hotel`~~ **klart** i `0006_operational_write_policies.sql` (utan receipts). **`receipts`** kvar: RPC-only eller senare migration.
 
 Efter varje steg: utoka `supabase/tests/database/*.test.sql` med write-negative/positive tester (ny fil eller utokning — separat uppgift).
 
@@ -238,10 +259,10 @@ Efter varje steg: utoka `supabase/tests/database/*.test.sql` med write-negative/
 - [ ] Product owner godkanner rollmatris for `receipts` och `work_orders`.
 - [ ] Beslut om soft-delete kolumner (separat datamigration).
 - [ ] Beslut om regnr-RPC kontra klient-krypterat payload.
-- [x] Verifiera att `npx supabase test db` ar gron efter `0005` (SELECT 32/32 + write 44/44 i nuvarande miljo).
-- [x] `supabase/tests/database/rls_write_policies.test.sql` for skrivscenarier (0005).
+- [x] Verifiera att `npx supabase test db` ar gron efter `0005`/`0006` (SELECT 32/32 + write 66/66 i nuvarande miljo).
+- [x] `supabase/tests/database/rls_write_policies.test.sql` for skrivscenarier (0005 + 0006).
 - [ ] Inga service-role nycklar i frontend.
 
 ---
 
-*Plan-delar under avsnitt 5–8 galler fortfarande tabeller som inte migrerats annat an som angetts i avsnitt "Implementerat: 0005". Nasta write-migration: se avsnitt 8 (`vehicles`, `work_orders`, `tire_hotel`, `receipts`, m.m.).*
+*Avsnitt 5 beskriver fortfarande helhetsbeslut; operativ skriv for `vehicles`/`work_orders`/`tire_hotel` ar implementerad i **0006** (se avsnitt "Implementerat: 0006"). **Nasta write-lager:** `receipts` och/eller RPC for regnr enligt avsnitt 4–6.*
