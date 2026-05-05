@@ -1,7 +1,7 @@
--- RLS write policy tests for migrations 0005–0007 (synthetic data only)
+-- RLS write policy tests for migrations 0005–0008 (synthetic data only)
 --
 -- Assumptions:
---   * Runs after migrations 0001–0007.
+--   * Runs after migrations 0001–0008.
 --   * Seed INSERTs run as session superuser (RLS bypass). DML tests use SET LOCAL ROLE authenticated.
 --   * Receptionist write in 0005 requires BOTH:
 --       - tenant_members.role = 'receptionist' AND membership_status = 'active'
@@ -158,10 +158,23 @@ values
     'Synth', 'CarB', 'enc-wb', digest('SYNTH-W-VEH-B1', 'sha256'), 'bb11'
   );
 
+-- Quote mismatched for receipt RPC tests (A1 workshop but A2 customer/vehicle pair)
+insert into public.quotes (id, tenant_id, workshop_id, booking_id, customer_id, vehicle_id, quote_number, status)
+values (
+  'f8e00bad-0000-4000-8000-00000000bad1',
+  '70000001-0000-4000-8000-000000000001',
+  '70100001-0000-4000-8000-000000000001',
+  null,
+  'c7000002-0000-4000-8000-000000000002',
+  'd7000002-0000-4000-8000-000000000002',
+  'WQT-BAD-REC',
+  'draft'
+);
+
 -- ---------------------------------------------------------------------------
 -- pgTAP plan: lives_ok / throws_matching / is (32 SELECT-svit ar separat fil)
 -- ---------------------------------------------------------------------------
-select plan(73);
+select plan(93);
 
 -- profiles: self update OK
 select lives_ok(
@@ -850,7 +863,7 @@ select throws_matching(
   'W68: tire_hotel tenant_id immutable'
 );
 
--- receipts: still no write policies
+-- receipts: no INSERT/UPDATE RLS; foundation via create_receipt RPC (0008)
 select throws_matching(
   $q$select pg_temp.run_as('f7000001-0000-4000-8000-000000000001'::uuid,
     $i$insert into public.receipts (id, tenant_id, workshop_id, customer_id, vehicle_id, receipt_number, payment_status)
@@ -859,6 +872,351 @@ select throws_matching(
   );$q$,
   'row-level security',
   'W69: cannot insert receipt as authenticated'
+);
+
+select lives_ok(
+  $q$select pg_temp.run_as('f7000001-0000-4000-8000-000000000001'::uuid,
+    $i$select public.create_receipt(
+      '70000001-0000-4000-8000-000000000001'::uuid,
+      '70100001-0000-4000-8000-000000000001'::uuid,
+      'c7000001-0000-4000-8000-000000000001'::uuid,
+      'd7000001-0000-4000-8000-000000000001'::uuid,
+      'WRCP-RPC-1',
+      100::numeric,
+      25::numeric,
+      125::numeric,
+      'unpaid',
+      'SEK',
+      null::uuid,
+      null::uuid,
+      null::uuid,
+      '{}'::jsonb
+    );$i$
+  );$q$,
+  'W71: owner creates receipt via create_receipt'
+);
+
+select lives_ok(
+  $q$select pg_temp.run_as('f7000002-0000-4000-8000-000000000001'::uuid,
+    $i$select public.create_receipt(
+      '70000001-0000-4000-8000-000000000001'::uuid,
+      '70100001-0000-4000-8000-000000000001'::uuid,
+      'c7000001-0000-4000-8000-000000000001'::uuid,
+      'd7000001-0000-4000-8000-000000000001'::uuid,
+      'WRCP-RPC-2',
+      200::numeric,
+      50::numeric,
+      250::numeric,
+      'unpaid',
+      'SEK',
+      'b7000001-0000-4000-8000-000000000001'::uuid,
+      'ab700002-0000-4000-8000-000000000002'::uuid,
+      'f8e00001-0000-4000-8000-000000000001'::uuid,
+      '{}'::jsonb
+    );$i$
+  );$q$,
+  'W72: admin creates receipt via RPC with booking, work_order, quote'
+);
+
+select throws_matching(
+  $q$select pg_temp.run_as('f7000003-0000-4000-8000-000000000001'::uuid,
+    $i$select public.create_receipt(
+      '70000001-0000-4000-8000-000000000001'::uuid,
+      '70100001-0000-4000-8000-000000000001'::uuid,
+      'c7000001-0000-4000-8000-000000000001'::uuid,
+      'd7000001-0000-4000-8000-000000000001'::uuid,
+      'WRCP-RPC-RX',
+      0::numeric,
+      0::numeric,
+      0::numeric
+    );$i$
+  );$q$,
+  'not authorized',
+  'W73: receptionist cannot create receipt via RPC'
+);
+
+select throws_matching(
+  $q$select pg_temp.run_as('f7000004-0000-4000-8000-000000000001'::uuid,
+    $i$select public.create_receipt(
+      '70000001-0000-4000-8000-000000000001'::uuid,
+      '70100001-0000-4000-8000-000000000001'::uuid,
+      'c7000001-0000-4000-8000-000000000001'::uuid,
+      'd7000001-0000-4000-8000-000000000001'::uuid,
+      'WRCP-RPC-MX',
+      0::numeric,
+      0::numeric,
+      0::numeric
+    );$i$
+  );$q$,
+  'not authorized',
+  'W74: mechanic cannot create receipt via RPC'
+);
+
+select throws_matching(
+  $q$select pg_temp.run_as('f7000005-0000-4000-8000-000000000001'::uuid,
+    $i$select public.create_receipt(
+      '70000001-0000-4000-8000-000000000001'::uuid,
+      '70200001-0000-4000-8000-000000000002'::uuid,
+      'c7000002-0000-4000-8000-000000000002'::uuid,
+      'd7000002-0000-4000-8000-000000000002'::uuid,
+      'WRCP-RPC-VX',
+      0::numeric,
+      0::numeric,
+      0::numeric
+    );$i$
+  );$q$,
+  'not authorized',
+  'W75: viewer cannot create receipt via RPC'
+);
+
+select throws_matching(
+  $q$select pg_temp.run_as('e7000001-0000-4000-8000-000000000001'::uuid,
+    $i$select public.create_receipt(
+      '70000001-0000-4000-8000-000000000001'::uuid,
+      '70100001-0000-4000-8000-000000000001'::uuid,
+      'c7000001-0000-4000-8000-000000000001'::uuid,
+      'd7000001-0000-4000-8000-000000000001'::uuid,
+      'WRCP-RPC-NM',
+      0::numeric,
+      0::numeric,
+      0::numeric
+    );$i$
+  );$q$,
+  'not authorized',
+  'W76: no membership cannot create receipt via RPC'
+);
+
+select throws_matching(
+  $q$select pg_temp.run_as('a700eed1-0000-4000-8000-000000000001'::uuid,
+    $i$select public.create_receipt(
+      '70000001-0000-4000-8000-000000000001'::uuid,
+      '70100001-0000-4000-8000-000000000001'::uuid,
+      'c7000001-0000-4000-8000-000000000001'::uuid,
+      'd7000001-0000-4000-8000-000000000001'::uuid,
+      'WRCP-RPC-SU',
+      0::numeric,
+      0::numeric,
+      0::numeric
+    );$i$
+  );$q$,
+  'not authorized',
+  'W77: suspended cannot create receipt via RPC'
+);
+
+select throws_matching(
+  $q$select pg_temp.run_as('a700eed2-0000-4000-8000-000000000001'::uuid,
+    $i$select public.create_receipt(
+      '70000001-0000-4000-8000-000000000001'::uuid,
+      '70100001-0000-4000-8000-000000000001'::uuid,
+      'c7000001-0000-4000-8000-000000000001'::uuid,
+      'd7000001-0000-4000-8000-000000000001'::uuid,
+      'WRCP-RPC-RV',
+      0::numeric,
+      0::numeric,
+      0::numeric
+    );$i$
+  );$q$,
+  'not authorized',
+  'W78: revoked cannot create receipt via RPC'
+);
+
+select throws_matching(
+  $q$select pg_temp.run_as('f7000001-0000-4000-8000-000000000001'::uuid,
+    $i$select public.create_receipt(
+      '70000002-0000-4000-8000-000000000002'::uuid,
+      '7b100001-0000-4000-8000-000000000001'::uuid,
+      'c7000003-0000-4000-8000-000000000003'::uuid,
+      'd7000003-0000-4000-8000-000000000003'::uuid,
+      'WRCP-RPC-XT',
+      0::numeric,
+      0::numeric,
+      0::numeric
+    );$i$
+  );$q$,
+  'not authorized',
+  'W79: owner A cannot create receipt for tenant B via RPC'
+);
+
+select throws_matching(
+  $q$select pg_temp.run_as('f7000001-0000-4000-8000-000000000001'::uuid,
+    $i$select public.create_receipt(
+      '70000001-0000-4000-8000-000000000001'::uuid,
+      '70200001-0000-4000-8000-000000000002'::uuid,
+      'c7000001-0000-4000-8000-000000000001'::uuid,
+      'd7000001-0000-4000-8000-000000000001'::uuid,
+      'WRCP-RPC-XW',
+      0::numeric,
+      0::numeric,
+      0::numeric
+    );$i$
+  );$q$,
+  'invalid receipt context',
+  'W80: receipt blocked when customer/workshop mismatch'
+);
+
+select throws_matching(
+  $q$select pg_temp.run_as('f7000001-0000-4000-8000-000000000001'::uuid,
+    $i$select public.create_receipt(
+      '70000001-0000-4000-8000-000000000001'::uuid,
+      '70100001-0000-4000-8000-000000000001'::uuid,
+      'c7000001-0000-4000-8000-000000000001'::uuid,
+      'd7000002-0000-4000-8000-000000000002'::uuid,
+      'WRCP-RPC-VC',
+      0::numeric,
+      0::numeric,
+      0::numeric
+    );$i$
+  );$q$,
+  'invalid receipt context',
+  'W81: receipt blocked when vehicle does not belong to customer'
+);
+
+select throws_matching(
+  $q$select pg_temp.run_as('f7000001-0000-4000-8000-000000000001'::uuid,
+    $i$select public.create_receipt(
+      '70000001-0000-4000-8000-000000000001'::uuid,
+      '70100001-0000-4000-8000-000000000001'::uuid,
+      'c7000001-0000-4000-8000-000000000001'::uuid,
+      'd7000001-0000-4000-8000-000000000001'::uuid,
+      'WRCP-RPC-BK',
+      0::numeric,
+      0::numeric,
+      0::numeric,
+      'unpaid',
+      'SEK',
+      'b70000a2-0000-4000-8000-0000000000a2'::uuid,
+      null::uuid,
+      null::uuid,
+      '{}'::jsonb
+    );$i$
+  );$q$,
+  'invalid receipt context',
+  'W82: receipt blocked when booking does not match workshop/customer/vehicle'
+);
+
+select throws_matching(
+  $q$select pg_temp.run_as('f7000001-0000-4000-8000-000000000001'::uuid,
+    $i$select public.create_receipt(
+      '70000001-0000-4000-8000-000000000001'::uuid,
+      '70100001-0000-4000-8000-000000000001'::uuid,
+      'c7000001-0000-4000-8000-000000000001'::uuid,
+      'd7000001-0000-4000-8000-000000000001'::uuid,
+      'WRCP-RPC-WO',
+      0::numeric,
+      0::numeric,
+      0::numeric,
+      'unpaid',
+      'SEK',
+      null::uuid,
+      'ab700001-0000-4000-8000-000000000001'::uuid,
+      null::uuid,
+      '{}'::jsonb
+    );$i$
+  );$q$,
+  'invalid receipt context',
+  'W83: receipt blocked when work_order does not match customer/vehicle'
+);
+
+select throws_matching(
+  $q$select pg_temp.run_as('f7000001-0000-4000-8000-000000000001'::uuid,
+    $i$select public.create_receipt(
+      '70000001-0000-4000-8000-000000000001'::uuid,
+      '70100001-0000-4000-8000-000000000001'::uuid,
+      'c7000001-0000-4000-8000-000000000001'::uuid,
+      'd7000001-0000-4000-8000-000000000001'::uuid,
+      'WRCP-RPC-QT',
+      0::numeric,
+      0::numeric,
+      0::numeric,
+      'unpaid',
+      'SEK',
+      null::uuid,
+      null::uuid,
+      'f8e00bad-0000-4000-8000-00000000bad1'::uuid,
+      '{}'::jsonb
+    );$i$
+  );$q$,
+  'invalid receipt context',
+  'W84: receipt blocked when quote does not match customer/vehicle'
+);
+
+select throws_matching(
+  $q$select pg_temp.run_as('f7000001-0000-4000-8000-000000000001'::uuid,
+    $i$select public.create_receipt(
+      '70000001-0000-4000-8000-000000000001'::uuid,
+      '70100001-0000-4000-8000-000000000001'::uuid,
+      'c7000001-0000-4000-8000-000000000001'::uuid,
+      'd7000001-0000-4000-8000-000000000001'::uuid,
+      'WRCP-RPC-NEG',
+      -1::numeric,
+      0::numeric,
+      -1::numeric
+    );$i$
+  );$q$,
+  'amounts must be non-negative',
+  'W85: create_receipt rejects negative amounts'
+);
+
+select throws_matching(
+  $q$select pg_temp.run_as('f7000001-0000-4000-8000-000000000001'::uuid,
+    $i$select public.create_receipt(
+      '70000001-0000-4000-8000-000000000001'::uuid,
+      '70100001-0000-4000-8000-000000000001'::uuid,
+      'c7000001-0000-4000-8000-000000000001'::uuid,
+      'd7000001-0000-4000-8000-000000000001'::uuid,
+      'WRCP-RPC-PD',
+      0::numeric,
+      0::numeric,
+      0::numeric,
+      'paid',
+      'SEK'
+    );$i$
+  );$q$,
+  'invalid payment status for create',
+  'W86: create_receipt rejects non-unpaid payment_status'
+);
+
+select throws_matching(
+  $q$select pg_temp.run_as('f7000001-0000-4000-8000-000000000001'::uuid,
+    $i$select public.create_receipt(
+      '70000001-0000-4000-8000-000000000001'::uuid,
+      '70100001-0000-4000-8000-000000000001'::uuid,
+      'c7000001-0000-4000-8000-000000000001'::uuid,
+      'd7000001-0000-4000-8000-000000000001'::uuid,
+      'WRCP-RPC-TOT',
+      10::numeric,
+      5::numeric,
+      10::numeric
+    );$i$
+  );$q$,
+  'total must equal subtotal plus vat',
+  'W87: create_receipt rejects total not equal subtotal+vat'
+);
+
+select throws_matching(
+  $q$select pg_temp.run_as('f7000001-0000-4000-8000-000000000001'::uuid,
+    $i$update public.receipts set total_amount = 999::numeric where receipt_number = 'WRCP-RPC-1';$i$
+  );$q$,
+  'receipt updates must use a future RPC',
+  'W88: direct receipt UPDATE denied'
+);
+
+select throws_matching(
+  $q$select pg_temp.run_as('f7000001-0000-4000-8000-000000000001'::uuid,
+    $i$delete from public.receipts where receipt_number = 'WRCP-RPC-1';$i$
+  );$q$,
+  'receipt delete is not allowed for client sessions',
+  'W89: direct receipt DELETE denied'
+);
+
+select is(
+  (
+    select created_by
+    from public.receipts
+    where receipt_number = 'WRCP-RPC-1'
+  ),
+  'f7000001-0000-4000-8000-000000000001'::uuid,
+  'W90: receipt created_by set from auth.uid()'
 );
 
 -- receptionist vs workshop_members role: receptionist tenant role + workshop_members required (documented in header)

@@ -36,7 +36,7 @@ Detta dokument beskriver antaganden och avgransningar for det forsta schemautkas
   - gora jamforelser via hash
   - hantera dekryptering kontrollerat i applikations- eller DB-lager senare
 
-**Nasta steg (sakerhet, dokumentation):** `docs/RECEIPTS_AND_REGISTRATION_SECURITY_PLAN.md` beskriver strategi for **kvitton** och **regnr**; migration **`0007_registration_number_security_foundation.sql`** inför `update_vehicle_registration_fields` + trigger som blockerar direkt `UPDATE` av `reg_number_*` (ingen full kryptering an).
+**Nasta steg (sakerhet, dokumentation):** `docs/RECEIPTS_AND_REGISTRATION_SECURITY_PLAN.md` beskriver strategi for **kvitton** och **regnr**; migration **`0007_registration_number_security_foundation.sql`** inför `update_vehicle_registration_fields` + trigger som blockerar direkt `UPDATE` av `reg_number_*` (ingen full kryptering an). Migration **`0008_receipts_rpc_foundation.sql`** inför `create_receipt` (RPC-first; ingen fri klient-`INSERT`/`UPDATE`/`DELETE` pa tabellen).
 
 ## Audit-forberedelse
 
@@ -129,7 +129,7 @@ Kort sammanfattning:
 
 ## Sakerhetsgranskning och verifieringsfas (pre-write)
 
-Ny verifieringsplan: `docs/RLS_VERIFICATION_PLAN.md` (senast dokumenterat: **105/105 PASS** — SELECT **32/32**, WRITE **73/73** efter **`0007`**).
+Ny verifieringsplan: `docs/RLS_VERIFICATION_PLAN.md` (senast dokumenterat: **125/125 PASS** — SELECT **32/32**, WRITE **93/93** efter **`0008`**).
 
 Kort bedomning av 0003:
 
@@ -157,12 +157,12 @@ Migration: `supabase/migrations/0004_rls_select_hardening.sql`
 
 Genomford lokalt med Docker Desktop igang och `npx supabase db reset` (PowerShell, branch `main`):
 
-- Alla migrationer **`0001`–`0007`** applicerades utan SQL-fel som stoppade loppet.
+- Alla migrationer **`0001`–`0008`** applicerades utan SQL-fel som stoppade loppet.
 - Meddelandet `DROP POLICY IF EXISTS ... does not exist, skipping` under `0003` ar forvantat vid forsta korning (idempotent drop).
 - Varningen `no files matched pattern: supabase/seed.sql` betyder att ingen seed-fil finns; den blockerar inte reset. Lagg till syntetisk seed senare om onskat.
 - Ingen riktig kunddata anvandes.
 
-Nasta steg: kor pgTAP-regression (`npx supabase test db`) enligt `docs/RLS_VERIFICATION_PLAN.md` — **105/105** (32 SELECT + 73 WRITE) efter **`0007`**. Ingen service role i frontend.
+Nasta steg: kor pgTAP-regression (`npx supabase test db`) enligt `docs/RLS_VERIFICATION_PLAN.md` — **125/125** (32 SELECT + 93 WRITE) efter **`0008`**. Ingen service role i frontend.
 
 ## Automatiserad SELECT-RLS regression
 
@@ -171,15 +171,15 @@ Nasta steg: kor pgTAP-regression (`npx supabase test db`) enligt `docs/RLS_VERIF
 - Syntetiska `auth.users` och domandata endast; ingen riktig kunddata.
 - Senast kord: **32/32 PASS** (lokal Supabase via `npx`). Se aven `docs/RLS_VERIFICATION_PLAN.md` for tackning mot manuella T1–T17.
 
-## Automatiserad WRITE-RLS regression (0005 + 0006 + 0007)
+## Automatiserad WRITE-RLS regression (0005 + 0006 + 0007 + 0008)
 
-- Fil: `supabase/tests/database/rls_write_policies.test.sql` (pgTAP, **73** test).
+- Fil: `supabase/tests/database/rls_write_policies.test.sql` (pgTAP, **93** test).
 - Kors av samma `npx supabase test db` som SELECT-sviten efter `db reset`.
-- Senast kord: **73/73 PASS** tillsammans med SELECT (**105/105** totalt, 32+73). **`0007`:** write-fall **W46–W52** (direkt `UPDATE` av `reg_number_*` nekad; godkand RPC-vag; mechanic/viewer/cross-tenant/hash-konflikt nekad). Detaljer: `docs/RLS_WRITE_POLICY_PLAN.md`, `docs/RLS_VERIFICATION_PLAN.md`.
+- Senast kord: **93/93 PASS** tillsammans med SELECT (**125/125** totalt, 32+93). **`0007`:** **W46–W52** (reg-falt). **`0008`:** **W69**, **W71–W90** (`create_receipt`, nekad direkt skrivning till `receipts`). Detaljer: `docs/RLS_WRITE_POLICY_PLAN.md`, `docs/RLS_VERIFICATION_PLAN.md`.
 
 ## Write-policies
 
-- Detaljplan: **`docs/RLS_WRITE_POLICY_PLAN.md`** (inkl. `0005`–`0007`).
+- Detaljplan: **`docs/RLS_WRITE_POLICY_PLAN.md`** (inkl. `0005`–`0008`).
 - Receipts + registreringsnummer (nasta steg): **`docs/RECEIPTS_AND_REGISTRATION_SECURITY_PLAN.md`**.
 - Overgripande: **`docs/RLS_POLICY_PLAN.md`**.
 
@@ -193,13 +193,19 @@ Nasta steg: kor pgTAP-regression (`npx supabase test db`) enligt `docs/RLS_VERIF
 
 - `INSERT`/`UPDATE` RLS for: `vehicles`, `work_orders`, `tire_hotel` (se `docs/RLS_WRITE_POLICY_PLAN.md` for rollmatris och regnr-risk).
 - Triggers: `tenant_id` immutable + audit pa samma tabeller.
-- **Inga** `DELETE`-policies; **inga** klient-writes till `receipts`, membership, `tenants`, `workshops`.
+- **Inga** `DELETE`-policies (operationellt); **inga** fria klient-writes till `receipts` (skapande via **`create_receipt`** i **`0008`**); **inga** klient-writes till membership, `tenants`, `workshops`.
 
 ### Migration `0007_registration_number_security_foundation.sql`
 
 - Registreringsfalt pa `vehicles`: direkt `UPDATE` av `reg_number_ciphertext` / `reg_number_hash` / `reg_number_last4` blockeras (trigger + intern GUC); andring **maste** ga via `public.update_vehicle_registration_fields(...)` (se `docs/RECEIPTS_AND_REGISTRATION_SECURITY_PLAN.md`).
 - **`INSERT`** av `reg_number_*` under befintlig RLS ar fortfarande en **dokumenterad risk** (ingen INSERT-sparr i `0007`).
-- **Ej** produktionskryptering/KMS; **ej** receipts.
+- **Ej** produktionskryptering/KMS.
+
+### Migration `0008_receipts_rpc_foundation.sql`
+
+- **`public.create_receipt(...)`** — `SECURITY DEFINER`, `search_path = public`: endast **owner**/**admin**, aktiv medlemskap, workshop-access; validerar kund/fordon/valfri bokning/AO/offert; belopp och `payment_status = unpaid` vid skapande; `created_by`/`updated_by` = `auth.uid()`. Valfri `p_booking_id` valideras men **lagras ej** (saknas `booking_id`-kolumn i `0001`).
+- Direkt klient-`INSERT` pa `receipts` forblir **nej** (RLS). **`receipts_deny_client_update` / `receipts_deny_client_delete`:** klient-`UPDATE`/`DELETE` nekas med RAISE.
+- **Ej** void/betalning/refund-RPC, Edge, frontend, full ekonomisk validering.
 
 ## Syntax och kvalitet
 

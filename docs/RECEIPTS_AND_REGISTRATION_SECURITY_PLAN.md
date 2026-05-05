@@ -1,6 +1,6 @@
 # Receipts och registreringsnummer — säkerhetsplan (nästa steg)
 
-Detta dokument är **besluts- och planunderlag** för hur Golden Auto ska hantera **kvitton (`receipts`)** och **registreringsnummer på `vehicles`** efter migrationerna `0001`–`0007`. Det ska stödja nästa implementationsomgång efter databasgrund i **`0007_registration_number_security_foundation.sql`**.
+Detta dokument är **besluts- och planunderlag** för hur Golden Auto ska hantera **kvitton (`receipts`)** och **registreringsnummer på `vehicles`** efter migrationerna `0001`–`0008`. **`0008_receipts_rpc_foundation.sql`** inför den första **RPC-first**-vägen för att skapa kvitton (`create_receipt`); fortsatt arbete (void, betalning, Edge, audit) beskrivs nedan.
 
 **Relaterat:** `docs/RLS_WRITE_POLICY_PLAN.md`, `docs/RLS_POLICY_PLAN.md`, `docs/SUPABASE_SCHEMA_NOTES.md`.
 
@@ -10,21 +10,29 @@ Detta dokument är **besluts- och planunderlag** för hur Golden Auto ska hanter
 
 | Område | Rekommendation |
 |--------|----------------|
-| **Receipts — skapande** | **Primärt via säker server-side väg** (Edge Function, backend eller `SECURITY DEFINER`-RPC med strikt validering). **Ej** fri klient-`INSERT` mot `receipts` i första skarpa läget. |
+| **Receipts — skapande** | **`0008`:** `public.create_receipt(...)` (`SECURITY DEFINER`, owner/admin, workshop-scope). **Ej** fri klient-`INSERT`. **Fortsatt:** Edge/backend för affärsregler, idempotens, audit. |
 | **Receipts — uppdatering** | Känsliga fält (`payment_status`, belopp, `paid_at`, kopplingar) via **samma server-side väg** eller **mycket snäv RLS** endast för `owner`/`admin` med triggers som spärrar beloppsändring efter `paid`. |
 | **Registreringsnummer** | **0007:** `UPDATE` av `reg_number_*` endast via `update_vehicle_registration_fields` (placeholder-payload; ingen KMS). **Fortsatt:** backend ska normalisera, hashar och kryptera; ev. kolumn-REVOKE / INSERT-hardning. |
-| **Nästa kodsteg (ordning)** | **Receipts** (RPC-first) efter 0007:s grund; **fortsatt regnr-härdning** (Edge/backend, nycklar) innan produktion med riktig kunddata. |
+| **Nästa kodsteg (ordning)** | **Receipts:** void/betalnings-RPC, triggers/audit, produktbeslut (efter `0008`-grunden). **Regnr:** fortsatt Edge/backend, nycklar, INSERT-härdning. |
 
 ---
 
 ## 1. Receipts
 
+### 1.0 Implementerat i `0008` (foundation)
+
+- **RPC:** `public.create_receipt(p_tenant_id, p_workshop_id, p_customer_id, p_vehicle_id, p_receipt_number, p_subtotal_amount, p_vat_amount, p_total_amount, p_payment_status, p_currency, p_booking_id, p_work_order_id, p_quote_id, p_metadata)` returnerar ny `id`. **`auth.uid()`** obligatoriskt; **endast** `tenant_members.role` **`owner`** eller **`admin`** med aktiv medlemskap och **`current_user_has_workshop_access`** för vald workshop.
+- **Ingen** fri klient-`INSERT` (RLS saknar `INSERT`-policy). **Uppdatering/radering:** policies `receipts_deny_client_update` / `receipts_deny_client_delete` anropar funktioner som **alltid** kastar undantag för `authenticated` (tydligt nej till direkt tabellskrivning). **`create_receipt`** bypassar RLS via `SECURITY DEFINER` (samma mönster som andra kontrollerade RPC:er).
+- **Validering:** tenant/workshop, kund och fordon i samma workshop; valfri **bokning** (parametern `p_booking_id`) kontrolleras mot samma kopplingar men **lagras inte** på `receipts` (tabellen har inget `booking_id` i nuvarande schema). Valfri **`work_order_id`** / **`quote_id`** måste peka på rader med samma tenant, workshop, kund och fordon. Belopp: inga negativa värden; `total_amount` = `subtotal_amount` + `vat_amount`. Vid skapande endast **`payment_status = 'unpaid'`** (inga falska “paid”-kvitton från denna RPC).
+- **`created_by` / `updated_by`:** sätts i RPC till **`auth.uid()`**; klient kan inte spoof:a.
+- **Ej i `0008`:** `UPDATE`-RPC (void, `paid_at`, beloppsändring), refund/kredit, `DELETE`, Edge Function, backend-lager, frontend, full ekonomisk matchning mot offert/AO, dedikerad audit-tabell.
+
 ### 1.1 Rollmatris (rekommendation)
 
 | Roll | Skapa receipt | Uppdatera receipt | Kommentar |
 |------|---------------|---------------------|-----------|
-| **owner** | Via **server-side** (rekommenderat) eller, om produkt kräver det, **snäv RLS** + triggers | Justeringar / void / korrigering enligt policy; helst **RPC** för status och belopp | Ekonomisk ansvarsnivå; minska risk för bedrägeri. |
-| **admin** | Som owner | Som owner | |
+| **owner** | **`0008`:** via **`create_receipt`**. Fortsatt: server-side för avancerade regler | **`0008`:** ingen klient-`UPDATE`; framtida RPC | Ekonomisk ansvarsnivå; minska risk för bedrägeri. |
+| **admin** | **`0008`:** via **`create_receipt`** | **`0008`:** ingen klient-`UPDATE`; framtida RPC | |
 | **receptionist** | **Normalt nej** till att skapa kvitto i första version (hög risk för felaktiga belopp/betalningsstatus) | **Nej** för `paid`/`voided`/belopp | Undantag endast om produktägare uttryckligen kräver det och policy/trigger begränsar fält. |
 | **mechanic** | **Nej** | **Nej** (eller enbart icke-ekonomiska fält i extremt begränsad variant — **ej rekommenderat** i MVP) | Verkstad ska inte kunna fabricera betalda kvitton. |
 | **viewer** | **Nej** | **Nej** | |
@@ -104,7 +112,7 @@ RPC ska:
 
 **Nästa steg efter 0007:** se avsnitt 2.2–2.5 och §4 (backend-RPC, nycklar, ev. `REVOKE` på kolumner).
 
-**Regressionsverifiering (pgTAP, dokumentation):** Efter `0007` kör `npx supabase db reset` (tillämpar `0001`–`0007`) och `npx supabase test db`. Senast dokumenterat i repo: **105/105 PASS** totalt — **SELECT 32/32**, **WRITE 73/73** (`plan(73)` i `rls_write_policies.test.sql`). Nya write-fall för registreringsfält: **W46** direkt klient-`UPDATE` av `reg_number_*` nekad; **W47** owner uppdaterar via `update_vehicle_registration_fields`; **W48** receptionist via RPC (A1-fordon); **W49**–**W50** mechanic/viewer nekas via RPC; **W51** cross-tenant nekad; **W52** duplicerad `reg_number_hash` inom tenant avvisas. Se `docs/RLS_VERIFICATION_PLAN.md`.
+**Regressionsverifiering (pgTAP, dokumentation):** Efter `0008` kör `npx supabase db reset` (tillämpar `0001`–`0008`) och `npx supabase test db`. Senast dokumenterat i repo: **125/125 PASS** totalt — **SELECT 32/32**, **WRITE 93/93** (`plan(93)` i `rls_write_policies.test.sql`). **Reg (0007):** **W46**–**W52** som tidigare. **Receipts (0008):** **W69** direkt `INSERT` nekad; **W71**–**W72** owner/admin `create_receipt`; **W73**–**W78** receptionist/mechanic/viewer/no membership/suspended/revoked nekas; **W79**–**W84** cross-tenant/workshop och fel bokning/AO/offert; **W85**–**W87** belopp/`payment_status`/total; **W88**–**W89** direkt `UPDATE`/`DELETE` nekas; **W90** `created_by`. Se `docs/RLS_VERIFICATION_PLAN.md`.
 
 ### 2.1 Risk med direkt klientwrite
 
@@ -184,10 +192,7 @@ Valfritt nästa steg i migration:
 ### 4.1 Alternativ A (rekommenderad ordning)
 
 1. **~~Migration / kod: Regnr-RPC och fordonsfält-härdning~~** — **del 1 klar:** `0007` (uppdaterings-RPC + trigger). **Kvar:** Edge/backend-indata, kryptering, INSERT-hardning, kolumn-REVOKE vid behov.
-2. **Migration: Receipts**
-   - Triggers: `tenant_id` immutable, `created_by`/`updated_by`, ev. beloppsspärr vid `paid`.
-   - **Antingen** inga klient-write policies + endast RPC, **eller** mycket snäva policies enligt avsnitt 1.2.
-   - Utökad testsvit för receipts och negativa fall.
+2. **~~Migration: Receipts (grund)~~** — **`0008` klar:** `create_receipt` + neka-`UPDATE`/`DELETE`-policies; inga fria klient-writes. **Kvar:** triggers (`tenant_id` immutable på `receipts`, beloppsspärr vid `paid`), **UPDATE**/void-RPC, utökad testsvit för betalnings-/void-flöden.
 
 **Motivering:** minskar risk att ekonomiska dokument skapas samtidigt som regnr fortfarande kan manipuleras godtyckligt från klient; en gemensam “sanering” av fordonsidentitet förenklar efterföljande kvittovalidering.
 
@@ -197,11 +202,7 @@ Valfritt nästa steg i migration:
 
 ### 4.3 Nästa migrationsnummer (receipts)
 
-**`0007` används för registreringsnummer-grund** (`0007_registration_number_security_foundation.sql`). **Receipts** bör få **egen senare migration** (t.ex. `0008_...`) enligt avsnitt 1:
-
-- Triggers på `receipts` (audit actors, `tenant_id`).
-- **Antingen** policies endast för `owner`/`admin` **eller** inga insert/update policies och enbart RPC — **måste** matcha beslut i avsnitt 1.
-- Inga `DELETE`-policies.
+**`0007`** = registreringsnummer-grund. **`0008`** = `0008_receipts_rpc_foundation.sql` (**`create_receipt`**, neka klient-`UPDATE`/`DELETE`). **Senare migrationer** (t.ex. `0009_...`): triggers på `receipts` (immutable `tenant_id`, ev. belopp efter `paid`), void/betalnings-RPC, audit — **inga** `DELETE`-policies i linje med nuvarande princip.
 
 ### 4.4 Risker och blockerare
 
@@ -220,6 +221,6 @@ Valfritt nästa steg i migration:
 - [ ] Produktägare godkänner: **receipts RPC-first** vs **snäv RLS** för admin/owner.
 - [ ] Juridik/ekonomi: void, refund, korrektion.
 - [ ] Teknik: nycklar och algoritm för hash/kryptering av regnr; **INSERT**-väg för nya fordon (RPC eller trigger).
-- [x] Databasgrund **0007** + pgTAP **105/105** (SELECT 32/32, WRITE 73/73, inkl. **W46–W52**) + verifieringsplaner uppdaterade (`RLS_VERIFICATION_PLAN`, `RLS_WRITE_POLICY_PLAN`).
+- [x] Databasgrund **0007**–**0008** + pgTAP **125/125** (SELECT 32/32, WRITE 93/93, bl.a. **W46–W52**, **W69**, **W71–W90**) + verifieringsplaner uppdaterade.
 
-*Senast uppdaterad: migration **0007** implementerad; verifiering dokumenterad som **105/105 PASS**; receipts/RPC-planering oförändrad i §1 och §4.*
+*Senast uppdaterad: **0008** (`create_receipt`, nekad direkt skrivning till `receipts`); verifiering **125/125 PASS**; void/betalning/Edge/frontend återstår.*
