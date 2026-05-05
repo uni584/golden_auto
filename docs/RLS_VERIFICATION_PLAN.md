@@ -1,6 +1,15 @@
 # RLS VERIFICATION PLAN (PRE-WRITE POLICIES)
 
-Detta dokument beskriver en saker verifieringsfas for RLS SELECT-lagret (`0003` + hardning `0004`) innan write-policies byggs.
+Detta dokument beskriver en saker verifieringsfas for RLS SELECT-lagret (`0003` + hardning `0004`) innan write-policies byggs, och **uppdateras lopande** nar nya migrationer och pgTAP-tester tillkommer.
+
+**Aktuell automatiserad regression (repo-miljo, efter migration `0007`):**
+
+- `npx supabase db reset` tillampar **`0001`–`0007`**.
+- `npx supabase test db`: **`105/105 PASS`** totalt — **SELECT 32/32**, **WRITE 73/73** (`plan(73)` i `rls_write_policies.test.sql`).
+- **`0007` — registreringsnummer:** `UPDATE` av `reg_number_ciphertext` / `reg_number_hash` / `reg_number_last4` pa `vehicles` **maste** ga via `public.update_vehicle_registration_fields(...)`; **direkt** `UPDATE` av dessa kolumner **blockeras** (trigger + intern GUC). **`INSERT`** av `reg_number_*` kan fortfarande ske under befintlig RLS — **kvarstaende risk**, se `docs/RECEIPTS_AND_REGISTRATION_SECURITY_PLAN.md` §2.
+- **Nya write-fall (reg, W46–W52):** W46 direkt reg-`UPDATE` nekad; W47–W48 owner/receptionist via RPC; W49–W50 mechanic/viewer nekad; W51 cross-tenant nekad; W52 hash-konflikt inom tenant.
+- **Innan produktionsklar regnr:** backend/Edge-normalisering, riktig hash/kryptering, KMS/Vault och nyckelrotation, INSERT-hardning (ev. RPC/kolumnprivilegier), audit-loggning — se `docs/RECEIPTS_AND_REGISTRATION_SECURITY_PLAN.md`.
+- **Receipts:** fortfarande **utan** klient-write policies; plan oforandrad i **`docs/RECEIPTS_AND_REGISTRATION_SECURITY_PLAN.md`** (RPC-first / server-side).
 
 ## Lokal migreringsverifiering (genomford)
 
@@ -16,6 +25,9 @@ Resultat (migrationer applicerade utan avbrott):
 - `0002_auth_membership_foundation.sql`
 - `0003_rls_helpers_and_select_policies.sql`
 - `0004_rls_select_hardening.sql`
+- `0005_initial_write_policies.sql`
+- `0006_operational_write_policies.sql`
+- `0007_registration_number_security_foundation.sql`
 
 Log-notiser som ar forvantade och ofarliga:
 
@@ -31,7 +43,7 @@ Sakerhet och data:
 
 Nasta steg (efter lyckad reset):
 
-- Kor `npx supabase test db` (pgTAP-filen ovan) for SELECT-regression, komplettera manuellt dar tabellen markerar **Nej**, planera sedan **0005** write-policies nar kraven ar uppfyllda.
+- Kor `npx supabase test db` for **105/105** pgTAP-regression (SELECT + WRITE), komplettera manuellt dar tabellen markerar **Nej** (t.ex. T17).
 
 **Obs:** Reset bevisar att SQL-migrationerna ar syntaktiskt tillampningsbara och att databasen startar; den ersatter inte full RLS-testkorning med impersonering/JWT.
 
@@ -47,21 +59,22 @@ Fil: `supabase/tests/database/rls_select_policies.test.sql`
 ### Korning (lokal Supabase)
 
 1. `npx supabase start` (Docker Desktop igang)
-2. `npx supabase db reset` (tillampar `0001`–`0004`)
+2. `npx supabase db reset` (tillampar `0001`–`0007`)
 3. `npx supabase test db`
 
-Senast kord i repo-miljo: **32/32 PASS** (pg_prove mot lokal databas).
+Senast kord i repo-miljo: **32/32 PASS** for SELECT-sviten (pg_prove mot lokal databas); **105/105 PASS** tillsammans med WRITE-sviten (se nedan).
 
-### WRITE-RLS testsvit (pgTAP, migration 0005 + 0006)
+### WRITE-RLS testsvit (pgTAP, migration 0005 + 0006 + 0007)
 
 Fil: `supabase/tests/database/rls_write_policies.test.sql`
 
-- **66** pgTAP-test (`plan(66)`); syntetisk data, `rollback` i slutet; samma JWT/impersoneringsmonster som SELECT-sviten (`SET LOCAL ROLE authenticated` + `request.jwt.claim.sub` / `role`).
+- **73** pgTAP-test (`plan(73)`); syntetisk data, `rollback` i slutet; samma JWT/impersoneringsmonster som SELECT-sviten (`SET LOCAL ROLE authenticated` + `request.jwt.claim.sub` / `role`).
 - Tacker `INSERT`/`UPDATE` for `profiles`, `customers`, `bookings`, `quotes`, `quote_items`, `vehicles`, `work_orders`, `tire_hotel` samt nekad `INSERT` dar policies saknas (`tenants`, `workshops`, membership, `receipts`, m.m.); se `docs/RLS_WRITE_POLICY_PLAN.md`.
+- **`0007` (W46–W52):** registreringsfalt — direkt `UPDATE` av `reg_number_*` nekad; godkand vag via `update_vehicle_registration_fields`; mechanic/viewer/cross-tenant/hash-konflikt nekad.
 
-**Korning:** `npx supabase start` (vid behov), `npx supabase db reset`, `npx supabase test db`.
+**Korning:** `npx supabase start` (vid behov), `npx supabase db reset` (tillampar **`0001`–`0007`**), `npx supabase test db`.
 
-**Resultat (senast i repo-miljo):** **98/98 PASS** totalt (**32** SELECT + **66** write). **0005** och **0006** ar regressionstestade for det sviten tacker; kvarstaende manuell risk (t.ex. anon/helper T17) ar oforandrad.
+**Resultat (senast i repo-miljo):** **105/105 PASS** totalt (**32** SELECT + **73** write). **0005**, **0006** och **0007** ar regressionstestade for det sviten tacker; kvarstaende manuell risk (t.ex. anon/helper T17) ar oforandrad.
 
 **Receptionist:** implementation kraver aktiv `tenant_members.role = 'receptionist'` **och** `workshop_members` som ger `current_user_has_workshop_access` — se write-planen for eventuell produkt-jamforelse mot "enbart workshop-receptionist".
 
@@ -90,8 +103,9 @@ Ovriga manuella/kompletterande tester (ej i pgTAP-filen an):
 
 ### Nasta steg
 
-- Anvand `npx supabase test db` som regression fore **0005** write-policies.
+- Anvand `npx supabase test db` som **lopande regression** efter varje migrations-/testandring (nu: **105/105** efter **0007**).
 - Komplettera manuellt med T17 (anon) om krav finns i er sakerhetsmodell.
+- **Receipts** och **full regnr-produktion:** se `docs/RECEIPTS_AND_REGISTRATION_SECURITY_PLAN.md`.
 
 ## 1) Mal med verifieringsfasen
 
@@ -285,9 +299,13 @@ Hogst prioritet (mest kritiska):
 
 ## 7) Beslutskriterier: redo for write-policies
 
-RLS SELECT-lagret ar redo for nasta steg om:
+**Historiskt:** RLS SELECT-lagret var redo for write-policies nar SELECT-sviten var gron.
 
-- `npx supabase test db` ar **gron** (32/32 i nuvarande testsvit), **och**
+**Nuvarande lage:** Write-sviten omfattar **0005–0007**; total pgTAP-regression **105/105** (32 SELECT + 73 write) i nuvarande repo-miljo.
+
+RLS SELECT-lagret och pafoljande write-lager anses fortsatt **validerade** om:
+
+- `npx supabase test db` ar **gron** (**105/105** i nuvarande testsvit, eller motsvarande om fler tester laggs till), **och**
 - manuella kompletteringar som organisationen krav (t.ex. anon/helper T17) ar hanterade eller accepterat risk, **och**
 - ovriga manuella T1-T17 dar tabellen markerar **Nej** ar korda eller medvetet scope-utelamnade.
 - Inga cross-tenant/cross-workshop rader returneras.

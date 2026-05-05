@@ -129,7 +129,7 @@ Kort sammanfattning:
 
 ## Sakerhetsgranskning och verifieringsfas (pre-write)
 
-Ny verifieringsplan: `docs/RLS_VERIFICATION_PLAN.md`
+Ny verifieringsplan: `docs/RLS_VERIFICATION_PLAN.md` (senast dokumenterat: **105/105 PASS** — SELECT **32/32**, WRITE **73/73** efter **`0007`**).
 
 Kort bedomning av 0003:
 
@@ -157,12 +157,12 @@ Migration: `supabase/migrations/0004_rls_select_hardening.sql`
 
 Genomford lokalt med Docker Desktop igang och `npx supabase db reset` (PowerShell, branch `main`):
 
-- Alla migrationer `0001`–`0004` applicerades utan SQL-fel som stoppade loppet.
+- Alla migrationer **`0001`–`0007`** applicerades utan SQL-fel som stoppade loppet.
 - Meddelandet `DROP POLICY IF EXISTS ... does not exist, skipping` under `0003` ar forvantat vid forsta korning (idempotent drop).
 - Varningen `no files matched pattern: supabase/seed.sql` betyder att ingen seed-fil finns; den blockerar inte reset. Lagg till syntetisk seed senare om onskat.
 - Ingen riktig kunddata anvandes.
 
-Nasta steg: kor syntetisk RLS-testdata + testsvit enligt `docs/RLS_VERIFICATION_PLAN.md`, eller planera write-policies nar SELECT-testerna ar grona. Ingen service role i frontend; inga write-policies ar aktiverade an.
+Nasta steg: kor pgTAP-regression (`npx supabase test db`) enligt `docs/RLS_VERIFICATION_PLAN.md` — **105/105** (32 SELECT + 73 WRITE) efter **`0007`**. Ingen service role i frontend.
 
 ## Automatiserad SELECT-RLS regression
 
@@ -175,7 +175,7 @@ Nasta steg: kor syntetisk RLS-testdata + testsvit enligt `docs/RLS_VERIFICATION_
 
 - Fil: `supabase/tests/database/rls_write_policies.test.sql` (pgTAP, **73** test).
 - Kors av samma `npx supabase test db` som SELECT-sviten efter `db reset`.
-- Senast kord: **73/73 PASS** tillsammans med SELECT (**105** totalt, 32+73). Detaljer: `docs/RLS_WRITE_POLICY_PLAN.md`.
+- Senast kord: **73/73 PASS** tillsammans med SELECT (**105/105** totalt, 32+73). **`0007`:** write-fall **W46–W52** (direkt `UPDATE` av `reg_number_*` nekad; godkand RPC-vag; mechanic/viewer/cross-tenant/hash-konflikt nekad). Detaljer: `docs/RLS_WRITE_POLICY_PLAN.md`, `docs/RLS_VERIFICATION_PLAN.md`.
 
 ## Write-policies
 
@@ -197,7 +197,8 @@ Nasta steg: kor syntetisk RLS-testdata + testsvit enligt `docs/RLS_VERIFICATION_
 
 ### Migration `0007_registration_number_security_foundation.sql`
 
-- Registreringsfalt pa `vehicles`: direkt `UPDATE` av `reg_number_ciphertext` / `reg_number_hash` / `reg_number_last4` blockeras; andring via `public.update_vehicle_registration_fields(...)` (se `docs/RECEIPTS_AND_REGISTRATION_SECURITY_PLAN.md`).
+- Registreringsfalt pa `vehicles`: direkt `UPDATE` av `reg_number_ciphertext` / `reg_number_hash` / `reg_number_last4` blockeras (trigger + intern GUC); andring **maste** ga via `public.update_vehicle_registration_fields(...)` (se `docs/RECEIPTS_AND_REGISTRATION_SECURITY_PLAN.md`).
+- **`INSERT`** av `reg_number_*` under befintlig RLS ar fortfarande en **dokumenterad risk** (ingen INSERT-sparr i `0007`).
 - **Ej** produktionskryptering/KMS; **ej** receipts.
 
 ## Syntax och kvalitet

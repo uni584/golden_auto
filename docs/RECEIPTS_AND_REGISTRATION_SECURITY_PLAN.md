@@ -102,7 +102,9 @@ RPC ska:
 - Hård INSERT-spärr för reg-fält (nya fordon kan fortfarande `INSERT` med reg-fält under befintlig RLS — samma klass av risk som tidigare för **första** lagring).
 - Loggning av råa registreringsnummer (RPC tar emot redan avidentifierade placeholder-värden i tester; produktion ska undvika klartext i DB-funktioner).
 
-**Nästa steg efter 0007:** se avsnitt 2.2–2.4 och §4 (backend-RPC, nycklar, ev. `REVOKE` på kolumner).
+**Nästa steg efter 0007:** se avsnitt 2.2–2.5 och §4 (backend-RPC, nycklar, ev. `REVOKE` på kolumner).
+
+**Regressionsverifiering (pgTAP, dokumentation):** Efter `0007` kör `npx supabase db reset` (tillämpar `0001`–`0007`) och `npx supabase test db`. Senast dokumenterat i repo: **105/105 PASS** totalt — **SELECT 32/32**, **WRITE 73/73** (`plan(73)` i `rls_write_policies.test.sql`). Nya write-fall för registreringsfält: **W46** direkt klient-`UPDATE` av `reg_number_*` nekad; **W47** owner uppdaterar via `update_vehicle_registration_fields`; **W48** receptionist via RPC (A1-fordon); **W49**–**W50** mechanic/viewer nekas via RPC; **W51** cross-tenant nekad; **W52** duplicerad `reg_number_hash` inom tenant avvisas. Se `docs/RLS_VERIFICATION_PLAN.md`.
 
 ### 2.1 Risk med direkt klientwrite
 
@@ -143,6 +145,16 @@ Valfritt nästa steg i migration:
 - Säkerställ **backup och rättslig grund** (GDPR) för behandling av fordonsidentifierare.
 - Kör **penntest / kodgranskning** av RPC och RLS tillsammans.
 - Migrera befintliga test-/staging-rader så att hash-algoritm och ciphertext-format är **konsekventa** innan produktion.
+
+### 2.5 Kvar innan produktionsklar registreringsnummerhantering
+
+`0007` är en **grund** (kontrollerad `UPDATE`-väg + trigger). Följande återstår typiskt innan skarp drift med riktig fordonsdata:
+
+- **Backend / Edge:** normalisering och validering av registreringsnummer innan lagring.
+- **Kryptografi:** riktig hash- och krypteringsstrategi (inte enbart placeholder i tester).
+- **KMS / Vault och nyckelrotation:** hemligheter utanför klienten; dokumenterad rotationsordning.
+- **INSERT-härdning:** begränsa eller kanalisera första lagring av `reg_number_*` (RPC, kolumnprivilegier eller motsvarande) — idag kvarstående risk enligt §2.1.
+- **Audit-loggning:** spårbarhet för regnr-ändringar och RPC-anrop utan klartext i opålitliga loggar.
 
 ---
 
@@ -208,6 +220,6 @@ Valfritt nästa steg i migration:
 - [ ] Produktägare godkänner: **receipts RPC-first** vs **snäv RLS** för admin/owner.
 - [ ] Juridik/ekonomi: void, refund, korrektion.
 - [ ] Teknik: nycklar och algoritm för hash/kryptering av regnr; **INSERT**-väg för nya fordon (RPC eller trigger).
-- [x] Databasgrund **0007** + write-tester (73 st) + `RLS_WRITE_POLICY_PLAN` uppdaterad.
+- [x] Databasgrund **0007** + pgTAP **105/105** (SELECT 32/32, WRITE 73/73, inkl. **W46–W52**) + verifieringsplaner uppdaterade (`RLS_VERIFICATION_PLAN`, `RLS_WRITE_POLICY_PLAN`).
 
-*Senast uppdaterad: inkluderar migration **0007** (registreringsfält-UPDATE centraliserad).*
+*Senast uppdaterad: migration **0007** implementerad; verifiering dokumenterad som **105/105 PASS**; receipts/RPC-planering oförändrad i §1 och §4.*
