@@ -31,13 +31,22 @@ Migrationen inför **endast** `INSERT`/`UPDATE` RLS (inga `DELETE`) for:
 
 **Triggers i 0006:** `tg_reject_tenant_id_change` pa `vehicles`, `work_orders`, `tire_hotel`; `tg_set_audit_actor` pa samma tabeller (`created_by`/`updated_by`).
 
-**Registreringsnummer / PII:** RLS stopp **inte** klienten fran att skicka godtyckligt innehall i `reg_number_ciphertext` / `reg_number_hash` / `reg_number_last4` om raden annars passerar policy. **Rekommendation:** framtida **saker RPC eller backend** som normaliserar, hashar och krypterar innan klient-write begransas ytterligare eller ersatts.
+**Registreringsnummer / PII (uppdatering efter 0007):** Direkt klient-`UPDATE` av `reg_number_*` ar **blockerad** av trigger; andring sker via `public.update_vehicle_registration_fields(...)`. **INSERT** av nya fordon med reg-falt kan fortfarande ske via RLS (samma risk som tidigare for forsta lagring). **Ej** full kryptering/KMS i 0007 — se **`docs/RECEIPTS_AND_REGISTRATION_SECURITY_PLAN.md`**.
 
-**Ej i 0006:** `receipts`; membership- eller tenant/workshop-admin-skrivningar; regnr-RPC.
+**Ej i 0006:** `receipts`; membership- eller tenant/workshop-admin-skrivningar; regnr-RPC (uppdatering av reg-falt **centraliseras i 0007**, se nedan).
 
-**Planering (receipts + registreringsnummer):** Beslut och ordning för nästa implementation finns i **`docs/RECEIPTS_AND_REGISTRATION_SECURITY_PLAN.md`**. Kort rekommendation: **RPC/server-side först** för kvitton och för regnr-fält; **regnr-härdning före eller tillsammans med** första receipts-skrivning för att minska sammansatt risk.
+## Implementerat: `0007_registration_number_security_foundation.sql`
 
-**Automatiserad write-regression (pgTAP):** `supabase/tests/database/rls_write_policies.test.sql` (**66** test, `plan(66)`). Kor med `npx supabase db reset` och `npx supabase test db` tillsammans med SELECT-sviten (**98** tester totalt med SELECT). Syntetiska `auth.users`, tenants/workshops, medlemskap och domandata; `rollback` i slutet av testfilen.
+**Syfte:** lagrisk databasgrund — central skrivvag for **andring** av registreringsfalt, utan Edge Function, KMS eller produktionskryptering.
+
+- **Trigger** `trg_vehicles_reg_fields_guard` / `tg_vehicles_reg_fields_guard`: pa `UPDATE` av `vehicles`, om nagon av `reg_number_ciphertext`, `reg_number_hash`, `reg_number_last4` andras kravs sessionsflagga `app.vehicle_registration_internal_update = '1'` (satts endast i RPC). Annars: fel meddelande som pekar pa `update_vehicle_registration_fields()`.
+- **RPC** `public.update_vehicle_registration_fields(p_vehicle_id, p_ciphertext, p_hash, p_last4)` — `SECURITY DEFINER`, `search_path = public`: validerar `auth.uid()`, aktiv tenantmedlem, samma roll/workshop-regler som `vehicles_update_scoped` (owner/admin eller receptionist med workshop-access), **ej** mechanic/viewer; blockerar cross-tenant via medlemskapskontroll; **unik** `reg_number_hash` per tenant (konflikt → fel); uppdaterar tre kolumner under GUC-bypass.
+- **GRANT** `EXECUTE` till `authenticated`; **REVOKE** fran `PUBLIC` och `anon`.
+- **Ej i 0007:** kryptering, normalisering av platen, nyckelhantering, INSERT-hardning, kolumn-REVOKE, receipts, `DELETE`-policies.
+
+**Planering (receipts + fortsatt regnr):** **`docs/RECEIPTS_AND_REGISTRATION_SECURITY_PLAN.md`**. Nasta steg: backend/Edge som **inte** skickar fardiga DB-falt fran klient; eventuellt kolumnprivilegier sa endast RPC-roll skriver `reg_number_*`.
+
+**Automatiserad write-regression (pgTAP):** `supabase/tests/database/rls_write_policies.test.sql` (**73** test, `plan(73)`). Kor med `npx supabase db reset` och `npx supabase test db` tillsammans med SELECT-sviten (**105** tester totalt med SELECT). Syntetiska `auth.users`, tenants/workshops, medlemskap och domandata; `rollback` i slutet av testfilen.
 
 **Tackning (0005):**
 
@@ -47,14 +56,15 @@ Migrationen inför **endast** `INSERT`/`UPDATE` RLS (inga `DELETE`) for:
 - **quotes:** insert/update for owner/admin/receptionist; `booking_id` fran annat verkstadspar nekad; customer fran annan tenant nekad; mechanic insert nekad; `tenant_id`-andring nekad.
 - **quote_items:** insert/update mot parent quote; fel `tenant_id` mot parent nekad; mechanic nekad; `tenant_id`-andring nekad.
 
-**Tackning (0006):**
+**Tackning (0006 + 0007 fordon):**
 
 - **vehicles:** owner/receptionist insert/update i ratt scope; receptionist A2 utan access nekad; mechanic/viewer nekad; customer fran annan tenant nekad; `tenant_id`-andring nekad; no membership nekad.
+- **0007:** direkt `UPDATE` av `reg_number_*` nekad; owner/receptionist andrar reg-falt via RPC; mechanic/viewer/cross-tenant/hash-konflikt nekad via RPC.
 - **work_orders:** owner/mechanic insert/update; receptionist/viewer nekad; vehicle fran tenant B nekad; `booking_id` fel verkstad nekad; mechanic utan A2-access nekad A2; `tenant_id`-andring nekad.
 - **tire_hotel:** receptionist/mechanic/owner insert/update; viewer nekad; receptionist utan A2-access nekad; customer B pa tenant A nekad; `tenant_id`-andring nekad.
-- **Fortfarande utan klient-write:** `INSERT` nekad for `authenticated` pa `tenants`, `workshops`, `tenant_members`, `workshop_members`, `receipts` (W33–W36, W62 i write-sviten).
+- **Fortfarande utan klient-write:** `INSERT` nekad for `authenticated` pa `tenants`, `workshops`, `tenant_members`, `workshop_members`, `receipts` (W33–W36, W69 i write-sviten).
 
-**Receptionist (implementation vs enkel workshop-roll):** policies i `0005`/`0006` for receptionist-skrivning kraver `tenant_members.role = 'receptionist'` **och** `current_user_has_workshop_access` dar workshop kravs. Test **W63**/`W06`/`W07` stodjer detta. Om produktplanen var "receptionist enbart via workshop_members" ar det en **policy-/plan-mismatch**; atgard = framtida migration.
+**Receptionist (implementation vs enkel workshop-roll):** policies i `0005`/`0006` for receptionist-skrivning kraver `tenant_members.role = 'receptionist'` **och** `current_user_has_workshop_access` dar workshop kravs. Test **W70**/`W06`/`W07` stodjer detta. Om produktplanen var "receptionist enbart via workshop_members" ar det en **policy-/plan-mismatch**; atgard = framtida migration.
 
 **Kanda luckor / begransningar i write-sviten:**
 
@@ -263,10 +273,10 @@ Efter varje steg: utoka `supabase/tests/database/*.test.sql` med write-negative/
 - [ ] Product owner godkanner rollmatris for `receipts` och `work_orders`.
 - [ ] Beslut om soft-delete kolumner (separat datamigration).
 - [ ] Beslut om regnr-RPC kontra klient-krypterat payload.
-- [x] Verifiera att `npx supabase test db` ar gron efter `0005`/`0006` (SELECT 32/32 + write 66/66 i nuvarande miljo).
-- [x] `supabase/tests/database/rls_write_policies.test.sql` for skrivscenarier (0005 + 0006).
+- [x] Verifiera att `npx supabase test db` ar gron efter `0005`–`0007` (SELECT 32/32 + write 73/73 i nuvarande miljo).
+- [x] `supabase/tests/database/rls_write_policies.test.sql` for skrivscenarier (0005 + 0006 + 0007 reg-hantering).
 - [ ] Inga service-role nycklar i frontend.
 
 ---
 
-*Avsnitt 5 beskriver fortfarande helhetsbeslut; operativ skriv for `vehicles`/`work_orders`/`tire_hotel` ar implementerad i **0006** (se avsnitt "Implementerat: 0006"). **Nasta steg:** se **`docs/RECEIPTS_AND_REGISTRATION_SECURITY_PLAN.md`** for receipts-strategi, regnr-RPC och foreslagen migrationsordning.*
+*Avsnitt 5 beskriver fortfarande helhetsbeslut; operativ skriv for `vehicles`/`work_orders`/`tire_hotel` ar i **0006**; **registreringsfalt-UPDATE** centraliseras i **0007**. **Nasta steg:** **`docs/RECEIPTS_AND_REGISTRATION_SECURITY_PLAN.md`** (receipts, fortsatt regnr/kryptering).*

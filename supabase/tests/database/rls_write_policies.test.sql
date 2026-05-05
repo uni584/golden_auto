@@ -1,7 +1,7 @@
--- RLS write policy tests for migrations 0005–0006 (synthetic data only)
+-- RLS write policy tests for migrations 0005–0007 (synthetic data only)
 --
 -- Assumptions:
---   * Runs after migrations 0001–0006.
+--   * Runs after migrations 0001–0007.
 --   * Seed INSERTs run as session superuser (RLS bypass). DML tests use SET LOCAL ROLE authenticated.
 --   * Receptionist write in 0005 requires BOTH:
 --       - tenant_members.role = 'receptionist' AND membership_status = 'active'
@@ -161,7 +161,7 @@ values
 -- ---------------------------------------------------------------------------
 -- pgTAP plan: lives_ok / throws_matching / is (32 SELECT-svit ar separat fil)
 -- ---------------------------------------------------------------------------
-select plan(66);
+select plan(73);
 
 -- profiles: self update OK
 select lives_ok(
@@ -613,6 +613,95 @@ select throws_matching(
   'W45: no membership cannot insert vehicle'
 );
 
+-- registration fields (0007): direct UPDATE blocked; use update_vehicle_registration_fields
+select throws_matching(
+  $q$select pg_temp.run_as('f7000001-0000-4000-8000-000000000001'::uuid,
+    $i$update public.vehicles
+       set reg_number_ciphertext = 'direct-bad',
+           reg_number_hash = decode('bad1', 'hex'),
+           reg_number_last4 = 'db01'
+     where id = 'd7000a01-0000-4000-8000-000000000001'::uuid;$i$
+  );$q$,
+  'update_vehicle_registration_fields',
+  'W46: direct client UPDATE of reg fields blocked'
+);
+
+select lives_ok(
+  $q$select pg_temp.run_as('f7000001-0000-4000-8000-000000000001'::uuid,
+    $i$select public.update_vehicle_registration_fields(
+      'd7000a01-0000-4000-8000-000000000001'::uuid,
+      'enc-rpc-owner',
+      decode('c0c0c0', 'hex'),
+      'rp01'
+    );$i$
+  );$q$,
+  'W47: owner updates reg fields via RPC'
+);
+
+select lives_ok(
+  $q$select pg_temp.run_as('f7000003-0000-4000-8000-000000000001'::uuid,
+    $i$select public.update_vehicle_registration_fields(
+      'd7000a02-0000-4000-8000-000000000002'::uuid,
+      'enc-rpc-rec',
+      decode('d1d1d1', 'hex'),
+      'rp02'
+    );$i$
+  );$q$,
+  'W48: receptionist updates reg fields via RPC (A1 vehicle)'
+);
+
+select throws_matching(
+  $q$select pg_temp.run_as('f7000004-0000-4000-8000-000000000001'::uuid,
+    $i$select public.update_vehicle_registration_fields(
+      'd7000001-0000-4000-8000-000000000001'::uuid,
+      'enc-mech',
+      decode('e1e1e1', 'hex'),
+      'me01'
+    );$i$
+  );$q$,
+  'not authorized',
+  'W49: mechanic cannot update reg fields via RPC'
+);
+
+select throws_matching(
+  $q$select pg_temp.run_as('f7000005-0000-4000-8000-000000000001'::uuid,
+    $i$select public.update_vehicle_registration_fields(
+      'd7000a01-0000-4000-8000-000000000001'::uuid,
+      'enc-view',
+      decode('f1f1f1', 'hex'),
+      'vw99'
+    );$i$
+  );$q$,
+  'not authorized',
+  'W50: viewer cannot update reg fields via RPC'
+);
+
+select throws_matching(
+  $q$select pg_temp.run_as('f7000001-0000-4000-8000-000000000001'::uuid,
+    $i$select public.update_vehicle_registration_fields(
+      'd7000003-0000-4000-8000-000000000003'::uuid,
+      'enc-cross',
+      decode('c2c2c2', 'hex'),
+      'cr01'
+    );$i$
+  );$q$,
+  'not authorized',
+  'W51: owner A cannot update reg fields on tenant B vehicle via RPC'
+);
+
+select throws_matching(
+  $q$select pg_temp.run_as('f7000001-0000-4000-8000-000000000001'::uuid,
+    $i$select public.update_vehicle_registration_fields(
+      'd7000a01-0000-4000-8000-000000000001'::uuid,
+      'enc-dup',
+      (select reg_number_hash from public.vehicles where id = 'd7000001-0000-4000-8000-000000000001'::uuid),
+      'du01'
+    );$i$
+  );$q$,
+  'registration hash conflict',
+  'W52: RPC rejects duplicate reg_number_hash within tenant'
+);
+
 -- work_orders (0006): owner/admin + mechanic (workshop); receptionist/viewer blocked
 select lives_ok(
   $q$select pg_temp.run_as('f7000001-0000-4000-8000-000000000001'::uuid,
@@ -620,7 +709,7 @@ select lives_ok(
      values ('ab700001-0000-4000-8000-000000000001', '70000001-0000-4000-8000-000000000001', '70100001-0000-4000-8000-000000000001',
              'b7000001-0000-4000-8000-000000000001', 'c7000001-0000-4000-8000-000000000001', 'd7000a01-0000-4000-8000-000000000001', 'WWO-OWN', 'draft');$i$
   );$q$,
-  'W46: owner inserts work_order A1'
+  'W53: owner inserts work_order A1'
 );
 
 select lives_ok(
@@ -629,7 +718,7 @@ select lives_ok(
      values ('ab700002-0000-4000-8000-000000000002', '70000001-0000-4000-8000-000000000001', '70100001-0000-4000-8000-000000000001',
              null, 'c7000001-0000-4000-8000-000000000001', 'd7000001-0000-4000-8000-000000000001', 'WWO-MEC', 'draft');$i$
   );$q$,
-  'W47: mechanic inserts work_order in A1'
+  'W54: mechanic inserts work_order in A1'
 );
 
 select throws_matching(
@@ -639,7 +728,7 @@ select throws_matching(
              null, 'c7000001-0000-4000-8000-000000000001', 'd7000001-0000-4000-8000-000000000001', 'WWO-REC', 'draft');$i$
   );$q$,
   'row-level security',
-  'W48: receptionist cannot insert work_order'
+  'W55: receptionist cannot insert work_order'
 );
 
 select throws_matching(
@@ -649,7 +738,7 @@ select throws_matching(
              null, 'c7000001-0000-4000-8000-000000000001', 'd7000001-0000-4000-8000-000000000001', 'WWO-VWR', 'draft');$i$
   );$q$,
   'row-level security',
-  'W49: viewer cannot insert work_order in A1'
+  'W56: viewer cannot insert work_order in A1'
 );
 
 select throws_matching(
@@ -659,7 +748,7 @@ select throws_matching(
              null, 'c7000001-0000-4000-8000-000000000001', 'd7000003-0000-4000-8000-000000000003', 'WWO-BAD', 'draft');$i$
   );$q$,
   'row-level security',
-  'W50: work_order insert blocked when vehicle is from tenant B'
+  'W57: work_order insert blocked when vehicle is from tenant B'
 );
 
 select throws_matching(
@@ -669,7 +758,7 @@ select throws_matching(
              'b70000a2-0000-4000-8000-0000000000a2', 'c7000001-0000-4000-8000-000000000001', 'd7000001-0000-4000-8000-000000000001', 'WWO-BKG', 'draft');$i$
   );$q$,
   'row-level security',
-  'W51: work_order insert blocked when booking workshop mismatches'
+  'W58: work_order insert blocked when booking workshop mismatches'
 );
 
 select throws_matching(
@@ -679,14 +768,14 @@ select throws_matching(
              null, 'c7000002-0000-4000-8000-000000000002', 'd7000002-0000-4000-8000-000000000002', 'WWO-A2X', 'draft');$i$
   );$q$,
   'row-level security',
-  'W52: mechanic cannot insert work_order in A2 (no access)'
+  'W59: mechanic cannot insert work_order in A2 (no access)'
 );
 
 select lives_ok(
   $q$select pg_temp.run_as('f7000001-0000-4000-8000-000000000001'::uuid,
     $i$update public.work_orders set notes = 'wo note' where id = 'ab700001-0000-4000-8000-000000000001'::uuid;$i$
   );$q$,
-  'W53: owner updates work_order'
+  'W60: owner updates work_order'
 );
 
 select throws_matching(
@@ -694,7 +783,7 @@ select throws_matching(
     $i$update public.work_orders set tenant_id = '70000002-0000-4000-8000-000000000002' where id = 'ab700001-0000-4000-8000-000000000001'::uuid;$i$
   );$q$,
   '(row-level security policy|tenant_id cannot be changed)',
-  'W54: work_order tenant_id immutable'
+  'W61: work_order tenant_id immutable'
 );
 
 -- tire_hotel (0006)
@@ -704,7 +793,7 @@ select lives_ok(
      values ('ac700001-0000-4000-8000-000000000001', '70000001-0000-4000-8000-000000000001', '70100001-0000-4000-8000-000000000001',
              'c7000001-0000-4000-8000-000000000001', 'd7000001-0000-4000-8000-000000000001', 'TH-R01', 'winter', 'stored');$i$
   );$q$,
-  'W55: receptionist inserts tire_hotel A1'
+  'W62: receptionist inserts tire_hotel A1'
 );
 
 select lives_ok(
@@ -713,7 +802,7 @@ select lives_ok(
      values ('ac700002-0000-4000-8000-000000000002', '70000001-0000-4000-8000-000000000001', '70100001-0000-4000-8000-000000000001',
              'c7000001-0000-4000-8000-000000000001', 'd7000001-0000-4000-8000-000000000001', 'TH-M01', 'summer', 'stored');$i$
   );$q$,
-  'W56: mechanic inserts tire_hotel A1'
+  'W63: mechanic inserts tire_hotel A1'
 );
 
 select throws_matching(
@@ -723,7 +812,7 @@ select throws_matching(
              'c7000001-0000-4000-8000-000000000001', 'd7000001-0000-4000-8000-000000000001', 'TH-V01', 'winter', 'stored');$i$
   );$q$,
   'row-level security',
-  'W57: viewer cannot insert tire_hotel A1'
+  'W64: viewer cannot insert tire_hotel A1'
 );
 
 select throws_matching(
@@ -733,7 +822,7 @@ select throws_matching(
              'c7000002-0000-4000-8000-000000000002', 'd7000002-0000-4000-8000-000000000002', 'TH-A2X', 'winter', 'stored');$i$
   );$q$,
   'row-level security',
-  'W58: receptionist cannot insert tire_hotel A2 (no access)'
+  'W65: receptionist cannot insert tire_hotel A2 (no access)'
 );
 
 select throws_matching(
@@ -743,14 +832,14 @@ select throws_matching(
              'c7000003-0000-4000-8000-000000000003', 'd7000001-0000-4000-8000-000000000001', 'TH-BAD', 'winter', 'stored');$i$
   );$q$,
   'row-level security',
-  'W59: tire_hotel insert blocked when customer from tenant B'
+  'W66: tire_hotel insert blocked when customer from tenant B'
 );
 
 select lives_ok(
   $q$select pg_temp.run_as('f7000001-0000-4000-8000-000000000001'::uuid,
     $i$update public.tire_hotel set rack = 'R12' where id = 'ac700001-0000-4000-8000-000000000001'::uuid;$i$
   );$q$,
-  'W60: owner updates tire_hotel'
+  'W67: owner updates tire_hotel'
 );
 
 select throws_matching(
@@ -758,7 +847,7 @@ select throws_matching(
     $i$update public.tire_hotel set tenant_id = '70000002-0000-4000-8000-000000000002' where id = 'ac700001-0000-4000-8000-000000000001'::uuid;$i$
   );$q$,
   '(row-level security policy|tenant_id cannot be changed)',
-  'W61: tire_hotel tenant_id immutable'
+  'W68: tire_hotel tenant_id immutable'
 );
 
 -- receipts: still no write policies
@@ -769,7 +858,7 @@ select throws_matching(
              'c7000001-0000-4000-8000-000000000001', 'd7000001-0000-4000-8000-000000000001', 'WRCP-1', 'unpaid');$i$
   );$q$,
   'row-level security',
-  'W62: cannot insert receipt as authenticated'
+  'W69: cannot insert receipt as authenticated'
 );
 
 -- receptionist vs workshop_members role: receptionist tenant role + workshop_members required (documented in header)
@@ -784,7 +873,7 @@ select is(
       and wm.workshop_id = '70100001-0000-4000-8000-000000000001'::uuid
   ),
   1::bigint,
-  'W63: receptionist has both tenant_members and workshop_members for A1'
+  'W70: receptionist has both tenant_members and workshop_members for A1'
 );
 
 select * from finish();

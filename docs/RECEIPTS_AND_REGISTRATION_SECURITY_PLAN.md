@@ -1,6 +1,6 @@
 # Receipts och registreringsnummer — säkerhetsplan (nästa steg)
 
-Detta dokument är **besluts- och planunderlag** för hur Golden Auto ska hantera **kvitton (`receipts`)** och **registreringsnummer på `vehicles`** efter migrationerna `0001`–`0006`. Det ändrar inte kod eller schema; det ska stödja nästa implementationsomgång.
+Detta dokument är **besluts- och planunderlag** för hur Golden Auto ska hantera **kvitton (`receipts`)** och **registreringsnummer på `vehicles`** efter migrationerna `0001`–`0007`. Det ska stödja nästa implementationsomgång efter databasgrund i **`0007_registration_number_security_foundation.sql`**.
 
 **Relaterat:** `docs/RLS_WRITE_POLICY_PLAN.md`, `docs/RLS_POLICY_PLAN.md`, `docs/SUPABASE_SCHEMA_NOTES.md`.
 
@@ -12,8 +12,8 @@ Detta dokument är **besluts- och planunderlag** för hur Golden Auto ska hanter
 |--------|----------------|
 | **Receipts — skapande** | **Primärt via säker server-side väg** (Edge Function, backend eller `SECURITY DEFINER`-RPC med strikt validering). **Ej** fri klient-`INSERT` mot `receipts` i första skarpa läget. |
 | **Receipts — uppdatering** | Känsliga fält (`payment_status`, belopp, `paid_at`, kopplingar) via **samma server-side väg** eller **mycket snäv RLS** endast för `owner`/`admin` med triggers som spärrar beloppsändring efter `paid`. |
-| **Registreringsnummer** | **Ej** att klienten sätter `reg_number_ciphertext` / `reg_number_hash` / `reg_number_last4` direkt på sikt; **dedikerad RPC/backend** som normaliserar, hashar och krypterar. |
-| **Nästa kodsteg (ordning)** | **Föreslå regnr-/fordons-RPC (härdning) före eller tillsammans med första receipts-skrivning**, så att ekonomiska poster inte byggs ovanpå fortsatt svag regnr-yta. Receipts kan därefter implementeras med tydlig kopplings- och beloppsvalidering. |
+| **Registreringsnummer** | **0007:** `UPDATE` av `reg_number_*` endast via `update_vehicle_registration_fields` (placeholder-payload; ingen KMS). **Fortsatt:** backend ska normalisera, hashar och kryptera; ev. kolumn-REVOKE / INSERT-hardning. |
+| **Nästa kodsteg (ordning)** | **Receipts** (RPC-first) efter 0007:s grund; **fortsatt regnr-härdning** (Edge/backend, nycklar) innan produktion med riktig kunddata. |
 
 ---
 
@@ -89,9 +89,24 @@ RPC ska:
 
 ## 2. Registreringsnummer (`vehicles`)
 
+### 2.0 Vad `0007` gör och inte gör
+
+**Gör:**
+
+- Blockerar **direkt** `UPDATE` av `reg_number_ciphertext`, `reg_number_hash`, `reg_number_last4` (trigger + undantag via intern sessionsflagga endast i `update_vehicle_registration_fields`).
+- Erbjuder **en** kontrollerad skrivväg: `public.update_vehicle_registration_fields(...)` med `auth.uid()`, samma tenant/workshop/rollkrav som `vehicles_update_scoped` (owner/admin eller receptionist med workshop-access), unik-hash-kontroll per tenant, `GRANT` endast `authenticated`.
+
+**Gör inte:**
+
+- Kryptering, KMS/Vault, normalisering av svensk/europeisk regskylt, Edge Function, frontend.
+- Hård INSERT-spärr för reg-fält (nya fordon kan fortfarande `INSERT` med reg-fält under befintlig RLS — samma klass av risk som tidigare för **första** lagring).
+- Loggning av råa registreringsnummer (RPC tar emot redan avidentifierade placeholder-värden i tester; produktion ska undvika klartext i DB-funktioner).
+
+**Nästa steg efter 0007:** se avsnitt 2.2–2.4 och §4 (backend-RPC, nycklar, ev. `REVOKE` på kolumner).
+
 ### 2.1 Risk med direkt klientwrite
 
-Nuvarande RLS (`0006`) tillåter **owner/admin/receptionist** att skriva **`reg_number_ciphertext`**, **`reg_number_hash`**, **`reg_number_last4`** utan att databasen validerar kryptografi eller normalisering.
+**Efter 0007:** direkt klient-`UPDATE` av **`reg_number_*` är blockerad**. Kvarstående yta: **`INSERT`** kan fortfarande sätta alla tre fält via RLS utan kryptografisk validering. Tidigare risk (oförändrad för INSERT):
 
 Risker:
 
@@ -156,10 +171,7 @@ Valfritt nästa steg i migration:
 
 ### 4.1 Alternativ A (rekommenderad ordning)
 
-1. **Migration / kod: Regnr-RPC och fordonsfält-härdning**
-   - Ny RPC (eller Edge Function + service) som sätter `reg_number_*`.
-   - Eventuellt: minska eller ta bort direkt klientuppdatering av dessa kolumner (privilegier / policy).
-   - pgTAP-tester för RPC och befintliga RLS-regressioner.
+1. **~~Migration / kod: Regnr-RPC och fordonsfält-härdning~~** — **del 1 klar:** `0007` (uppdaterings-RPC + trigger). **Kvar:** Edge/backend-indata, kryptering, INSERT-hardning, kolumn-REVOKE vid behov.
 2. **Migration: Receipts**
    - Triggers: `tenant_id` immutable, `created_by`/`updated_by`, ev. beloppsspärr vid `paid`.
    - **Antingen** inga klient-write policies + endast RPC, **eller** mycket snäva policies enligt avsnitt 1.2.
@@ -171,14 +183,13 @@ Valfritt nästa steg i migration:
 
 - Två team: ett på regnr-RPC, ett på receipts-RPC — **kräver** gemensamt gränssnitt för validering av `vehicle_id` vid kvittoskapande och **integrations-/migrationsdisciplin** så att inte receipts släpps före minsta regnr-härdning.
 
-### 4.3 Om `0007` enbart är receipts
+### 4.3 Nästa migrationsnummer (receipts)
 
-**Möjligt scope för `0007_receipts_write_*.sql` om produkt prioriterar kvitton först:**
+**`0007` används för registreringsnummer-grund** (`0007_registration_number_security_foundation.sql`). **Receipts** bör få **egen senare migration** (t.ex. `0008_...`) enligt avsnitt 1:
 
 - Triggers på `receipts` (audit actors, `tenant_id`).
 - **Antingen** policies endast för `owner`/`admin` **eller** inga insert/update policies och enbart RPC — **måste** matcha beslut i avsnitt 1.
 - Inga `DELETE`-policies.
-- **Risk:** regnr förblir svag tills separat migration; **blockerare** om compliance kräver PII-härdning före ekonomidata.
 
 ### 4.4 Risker och blockerare
 
@@ -196,7 +207,7 @@ Valfritt nästa steg i migration:
 
 - [ ] Produktägare godkänner: **receipts RPC-first** vs **snäv RLS** för admin/owner.
 - [ ] Juridik/ekonomi: void, refund, korrektion.
-- [ ] Teknik: nycklar och algoritm för hash/kryptering av regnr.
-- [ ] Uppdatera `RLS_WRITE_POLICY_PLAN.md` och testspec när implementation påbörjas.
+- [ ] Teknik: nycklar och algoritm för hash/kryptering av regnr; **INSERT**-väg för nya fordon (RPC eller trigger).
+- [x] Databasgrund **0007** + write-tester (73 st) + `RLS_WRITE_POLICY_PLAN` uppdaterad.
 
-*Senast uppdaterad som planunderlag i samband med dokumentations-PR (ingen schemaändring i samma steg).*
+*Senast uppdaterad: inkluderar migration **0007** (registreringsfält-UPDATE centraliserad).*

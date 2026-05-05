@@ -36,7 +36,7 @@ Detta dokument beskriver antaganden och avgransningar for det forsta schemautkas
   - gora jamforelser via hash
   - hantera dekryptering kontrollerat i applikations- eller DB-lager senare
 
-**Nasta steg (sakerhet, dokumentation):** `docs/RECEIPTS_AND_REGISTRATION_SECURITY_PLAN.md` beskriver rekommenderad strategi for **kvitton** och **hardare regnr-hantering** (RPC/backend, audit, migrationsordning) utan att andra nuvarande migrationer.
+**Nasta steg (sakerhet, dokumentation):** `docs/RECEIPTS_AND_REGISTRATION_SECURITY_PLAN.md` beskriver strategi for **kvitton** och **regnr**; migration **`0007_registration_number_security_foundation.sql`** inför `update_vehicle_registration_fields` + trigger som blockerar direkt `UPDATE` av `reg_number_*` (ingen full kryptering an).
 
 ## Audit-forberedelse
 
@@ -171,15 +171,15 @@ Nasta steg: kor syntetisk RLS-testdata + testsvit enligt `docs/RLS_VERIFICATION_
 - Syntetiska `auth.users` och domandata endast; ingen riktig kunddata.
 - Senast kord: **32/32 PASS** (lokal Supabase via `npx`). Se aven `docs/RLS_VERIFICATION_PLAN.md` for tackning mot manuella T1–T17.
 
-## Automatiserad WRITE-RLS regression (0005 + 0006)
+## Automatiserad WRITE-RLS regression (0005 + 0006 + 0007)
 
-- Fil: `supabase/tests/database/rls_write_policies.test.sql` (pgTAP, **66** test).
+- Fil: `supabase/tests/database/rls_write_policies.test.sql` (pgTAP, **73** test).
 - Kors av samma `npx supabase test db` som SELECT-sviten efter `db reset`.
-- Senast kord: **66/66 PASS** tillsammans med SELECT (**98** totalt, 32+66). Detaljer: `docs/RLS_WRITE_POLICY_PLAN.md`.
+- Senast kord: **73/73 PASS** tillsammans med SELECT (**105** totalt, 32+73). Detaljer: `docs/RLS_WRITE_POLICY_PLAN.md`.
 
 ## Write-policies
 
-- Detaljplan: **`docs/RLS_WRITE_POLICY_PLAN.md`** (inkl. `0005` + `0006`).
+- Detaljplan: **`docs/RLS_WRITE_POLICY_PLAN.md`** (inkl. `0005`–`0007`).
 - Receipts + registreringsnummer (nasta steg): **`docs/RECEIPTS_AND_REGISTRATION_SECURITY_PLAN.md`**.
 - Overgripande: **`docs/RLS_POLICY_PLAN.md`**.
 
@@ -194,6 +194,11 @@ Nasta steg: kor syntetisk RLS-testdata + testsvit enligt `docs/RLS_VERIFICATION_
 - `INSERT`/`UPDATE` RLS for: `vehicles`, `work_orders`, `tire_hotel` (se `docs/RLS_WRITE_POLICY_PLAN.md` for rollmatris och regnr-risk).
 - Triggers: `tenant_id` immutable + audit pa samma tabeller.
 - **Inga** `DELETE`-policies; **inga** klient-writes till `receipts`, membership, `tenants`, `workshops`.
+
+### Migration `0007_registration_number_security_foundation.sql`
+
+- Registreringsfalt pa `vehicles`: direkt `UPDATE` av `reg_number_ciphertext` / `reg_number_hash` / `reg_number_last4` blockeras; andring via `public.update_vehicle_registration_fields(...)` (se `docs/RECEIPTS_AND_REGISTRATION_SECURITY_PLAN.md`).
+- **Ej** produktionskryptering/KMS; **ej** receipts.
 
 ## Syntax och kvalitet
 
