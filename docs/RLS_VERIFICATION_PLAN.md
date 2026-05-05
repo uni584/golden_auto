@@ -1,0 +1,176 @@
+# RLS VERIFICATION PLAN (PRE-WRITE POLICIES)
+
+Detta dokument beskriver en saker verifieringsfas for `0003_rls_helpers_and_select_policies.sql` innan write-policies byggs.
+
+## 1) Mal med verifieringsfasen
+
+- Bekrafta tenant-isolering for alla SELECT-policies.
+- Bekrafta workshop-isolering dar `workshop_id` finns.
+- Bekrafta att endast `active` membership ger access.
+- Bekrafta att `suspended` och `revoked` nekas.
+- Bekrafta att `quote_items` inte kan lasas via annan tenant.
+- Bekrafta att kanslig fordonsdata (inkl. registreringsnummer-falt) ar RLS-isolerad.
+
+## 2) Testmiljo och testidentiteter
+
+Skapa endast syntetiska testdata:
+
+- Tenant A
+- Tenant B
+- Workshop A1, A2 (under Tenant A)
+- Workshop B1 (under Tenant B)
+
+Anvandarprofiler (auth.users + membership):
+
+- A_owner (owner, tenant A, workshop A1+A2)
+- A_admin (admin, tenant A, workshop A1+A2)
+- A_mechanic_A1 (mechanic, tenant A, workshop A1)
+- A_receptionist_A2 (receptionist, tenant A, workshop A2)
+- A_viewer_A1 (viewer, tenant A, workshop A1)
+- B_owner (owner, tenant B, workshop B1)
+- No_membership_user (ingen tenant_members rad)
+- Suspended_user_A (tenant_members/workshop_members = suspended)
+- Revoked_user_A (tenant_members/workshop_members = revoked)
+
+## 3) Testmetod (utan destruktiva tester)
+
+- Kor endast SELECT-verifiering och metadata-kontroller.
+- Inga DELETE/TRUNCATE/drop-kommandon.
+- Inga write-policies testas i denna fas.
+
+Om Supabase CLI finns:
+
+- Anvand lokal dev-db och kor migrationer i ordning.
+- Kor testfallen via SQL (impersonering per user-sub).
+
+Om Supabase CLI saknas:
+
+- Kor tester senare i staging/projektets Supabase SQL Editor.
+- Impersonera anvandare med JWT-claims per session:
+  - satt `request.jwt.claim.role = authenticated`
+  - satt `request.jwt.claim.sub = <test_user_uuid>`
+- Exempel:
+  - `select set_config('request.jwt.claim.role', 'authenticated', true);`
+  - `select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000001', true);`
+
+## 4) Kritiska tabeller/policies att validera
+
+Maste testas:
+
+- `tenants` / `tenant_select_scoped`
+- `workshops` / `workshops_select_scoped`
+- `tenant_members` / `tenant_members_select_scoped`
+- `workshop_members` / `workshop_members_select_scoped`
+- `customers` / `customers_select_scoped`
+- `vehicles` / `vehicles_select_scoped`
+- `bookings` / `bookings_select_scoped`
+- `work_orders` / `work_orders_select_scoped`
+- `quotes` / `quotes_select_scoped`
+- `quote_items` / `quote_items_select_scoped`
+- `receipts` / `receipts_select_scoped`
+- `tire_hotel` / `tire_hotel_select_scoped`
+
+Hogst prioritet (mest kritiska):
+
+- `vehicles_select_scoped` (kanslig regnr-data i tabellen)
+- `quote_items_select_scoped` (indirekt scope via `quotes`)
+- `profiles_select_scoped` (risk for for bred intern persondata-lasning)
+- `tenant_members_select_scoped` + `workshop_members_select_scoped` (RLS-karnan)
+
+## 5) Testfall for SELECT (med PASS/FAIL)
+
+### T1: Aktiv tenant-medlem kan lasa egen tenant
+- User: A_owner
+- Query: `select id from public.tenants where id = <tenant_a_id>;`
+- PASS: 1 rad (tenant A)
+- FAIL: 0 rader
+
+### T2: Aktiv tenant-medlem kan inte lasa annan tenant
+- User: A_owner
+- Query: `select id from public.tenants where id = <tenant_b_id>;`
+- PASS: 0 rader
+- FAIL: >=1 rad
+
+### T3: Workshop-medlem kan lasa sin workshop
+- User: A_mechanic_A1
+- Query: `select id from public.workshops where id = <workshop_a1_id>;`
+- PASS: 1 rad
+- FAIL: 0 rader
+
+### T4: Workshop-medlem kan inte lasa annan workshop utan access
+- User: A_mechanic_A1
+- Query: `select id from public.workshops where id = <workshop_a2_id>;`
+- PASS: 0 rader
+- FAIL: >=1 rad
+
+### T5: Suspended user nekas tenant/workshop data
+- User: Suspended_user_A
+- Query: SELECT mot `tenants`, `workshops`, `customers`, `vehicles`
+- PASS: 0 rader pa samtliga
+- FAIL: nagon rad returneras
+
+### T6: Revoked user nekas tenant/workshop data
+- User: Revoked_user_A
+- Query: SELECT mot samma tabeller som T5
+- PASS: 0 rader pa samtliga
+- FAIL: nagon rad returneras
+
+### T7: User utan membership nekas all scoped data
+- User: No_membership_user
+- Query: SELECT mot alla RLS-tabeller
+- PASS: 0 rader pa samtliga
+- FAIL: nagon rad returneras
+
+### T8: `quote_items` kan inte lasas via annan tenant
+- User: A_owner
+- Query: JOIN/SELECT pa quote_items kopplade till Tenant B quote
+- PASS: 0 rader
+- FAIL: >=1 rad
+
+### T9: `vehicles` isoleras korrekt
+- User: A_receptionist_A2
+- Query: `select id from public.vehicles where workshop_id = <workshop_a1_id>;`
+- PASS: 0 rader (ingen A1-access)
+- FAIL: >=1 rad
+
+### T10: `customers` isoleras korrekt
+- User: A_viewer_A1
+- Query: `select id from public.customers where workshop_id = <workshop_b1_id>;`
+- PASS: 0 rader
+- FAIL: >=1 rad
+
+### T11: Membership-lasa begransas korrekt
+- User: A_viewer_A1
+- Query: `select * from public.tenant_members where tenant_id = <tenant_a_id>;`
+- PASS: endast egna rader
+- FAIL: andra anvandares membership-rader syns
+
+### T12: Admin kan lasa membership inom scope
+- User: A_admin
+- Query: `select * from public.tenant_members where tenant_id = <tenant_a_id>;`
+- PASS: flera rader inom tenant A syns, inga fran tenant B
+- FAIL: tenant B rader syns eller tenant A blockerad
+
+## 6) Kompletterande granskningskontroller
+
+- Kontrollera att helper functions har:
+  - `security definer`
+  - explicit `set search_path = public`
+  - `stable`
+- Kontrollera att inga policies innehaller oavsiktlig broad `true`-logik.
+- Kontrollera att policy beroenden inte skapar recursion-fel vid SELECT.
+
+## 7) Beslutskriterier: redo for write-policies
+
+RLS SELECT-lagret ar redo for nasta steg om:
+
+- Samtliga T1-T12 passerar.
+- Inga cross-tenant/cross-workshop rader returneras.
+- Suspended/revoked/no-membership ar konsekvent blockerade.
+- Inga recursion- eller policy-evalueringsfel uppstar.
+
+Om nagon kritisk test faller:
+
+- Stoppa write-policy-arbete.
+- Harda helper/policy-design forst.
+- Kor om verifieringssviten innan nya migrationer.

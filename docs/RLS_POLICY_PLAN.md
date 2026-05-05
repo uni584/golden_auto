@@ -103,3 +103,41 @@ Roller: `owner`, `admin`, `mechanic`, `receptionist`, `viewer`.
 - Risk utan write-policies: tabeller blir read-isolerade men writes ar inte oppnade kontrollerat for klient.
 - `vehicles` innehaller kanslig registreringsdata; RLS isolerar tenant/workshop men ytterligare datamaskning/least-privilege vyer kan behovas.
 - `security definer`-funktioner forutsatter kontrollerad agare och oforandrad deployprocess.
+
+## Sakerhetsgranskning av 0003 (logisk)
+
+Granskad yta:
+
+- Helper functions (`auth.uid()`, `active` status-check, role/workshop checks)
+- `security definer` och `search_path`
+- grants pa helper functions
+- SELECT-policies per tabell
+- risk for recursion
+- risk for cross-tenant access
+- risk for for bred profile/membership-lasning
+
+Identifierade risker/observationer:
+
+- **R1 - Function execute scope:** helper functions har `grant execute ... to authenticated`, men explicit revoke fran `public`/`anon` ar inte dokumenterad i `0003`. Detta kan ge oonskad boolean-oracle-yta i miljor dar `public` fortfarande har execute.
+- **R2 - Profile breadth:** `profiles_select_scoped` later all aktiva medlemmar i samma tenant lasa varandras profiler. Detta kan vara bredare an minsta nodvandiga dataatkomst beroende pa vilka PII-falt som fylls i `profiles`.
+- **R3 - Future FORCE RLS recursion hazard:** om `FORCE ROW LEVEL SECURITY` senare aktiveras pa `tenant_members`/`workshop_members` utan separat strategi kan helper-funktioner som laser dessa tabeller trigga recursion/policy-loop.
+- **R4 - Workshop visibility design tradeoff:** `workshops_select_scoped` kraver workshop-membership. Tenant owner/admin utan explicit workshop_members-rad far ingen workshop-listning. Detta ar inte datalacka, men kan ge oavsiktlig hard blockering i drift.
+
+Bedomning:
+
+- Ingen uppenbar direkt cross-tenant-lacka i `0003`-logiken.
+- `quote_items_select_scoped` ar korrekt kopplad via `quotes` + workshop-access och minskar indirekt tenant-bypass-risk.
+- `customers`/`vehicles` ar tenant-isolerade och workshop-isolerade nar `workshop_id` finns; rader med `workshop_id is null` ar medvetet tenant-lasa.
+
+## Rekommendation innan write-policies
+
+Status: **Redo med villkorad hardning**.
+
+Innan eller i samband med write-policy-migrationen bor foljande goras:
+
+- Revoke execute pa helper-funktioner fran roller som inte ska kunna kalla dem (minst `public`, ev. `anon`) och behall explicit grant till `authenticated`.
+- Besluta om `profiles` ska vara:
+  - self-only for icke-admin roller, eller
+  - tenant-shared med faltbegransning via vyer.
+- Definiera strategi innan ev. `FORCE RLS` aktiveras pa membership-tabeller for att undvika recursion.
+- Verifiera med testsvit i `docs/RLS_VERIFICATION_PLAN.md` och krava full PASS fore write-policies.

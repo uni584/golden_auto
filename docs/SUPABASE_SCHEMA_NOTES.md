@@ -125,6 +125,23 @@ Kort sammanfattning:
 - Endast `SELECT`-policies ar tillagda i detta steg; write-policies ar avsiktligt utelamnat.
 - Tenant/workshop-isolering ar nu forberedd for kanslig data (inkl. fordon/registreringsnummer) via medlemskap och workshop-access.
 
+## Sakerhetsgranskning och verifieringsfas (pre-write)
+
+Ny verifieringsplan: `docs/RLS_VERIFICATION_PLAN.md`
+
+Kort bedomning av 0003:
+
+- SELECT-lagret ar i grunden korrekt for tenant/workshop-isolering.
+- Inga tydliga direkta cross-tenant-lackor identifierades i policylogiken.
+- Foljande risker maste valideras/hardas innan write-policies:
+  - helper function execute-scope (revoke fran oonskade roller)
+  - eventuell for bred `profiles`-lasning inom tenant
+  - recursion-risk om `FORCE RLS` senare aktiveras pa membership-tabeller
+
+Rekommendation:
+
+- Fortsatt till write-policy design ar mojligt, men endast efter att verifieringssviten passerat enligt `docs/RLS_VERIFICATION_PLAN.md`.
+
 ## Syntax och kvalitet
 
 - SQL ar skriven for Postgres/Supabase med `pgcrypto` extension.
