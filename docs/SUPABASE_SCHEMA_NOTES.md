@@ -265,3 +265,10 @@ Nasta steg: kor pgTAP-regression (`npx supabase test db`) enligt `docs/RLS_VERIF
   - ingen service role i frontend
   - MongoDB fortsatter som aktiv kalla tills verifiering ar klar
   - endast syntetisk data i test
+
+### Auth/RLS-forutsattning for backend read-only
+
+- RLS-modellen i Supabase forutsatter riktig user-context (`auth.uid()`), kopplad till `tenant_members` och `workshop_members`.
+- En backend-read path som endast anvander anon key ar inte tillracklig for verifierad tenant/workshop-lasning.
+- Darfor ar nuvarande customers read-only path att betrakta som **foundation/steg 1**, inte slutlig live-losning.
+- Innan live maste backend-anropet till Supabase ske med anvandarens JWT-kontekst (utan service-role bypass for vanlig domandata).

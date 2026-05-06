@@ -152,6 +152,20 @@ Denna punkt kompletterar migrations-/RLS-regressionen med appnara read-only kont
   - MongoDB fortsatter som aktiv kalla tills read-only verifierats i praktiken
   - Supabase-lasning introduceras bakom feature flag i backend
 
+### Auth/RLS-gap i nuvarande backend-read path (viktig blockerare)
+
+- Nuvarande customers-read path anropar Supabase med anon key men utan anvandarens Supabase JWT.
+- Det betyder att `auth.uid()`-baserade RLS-policyer normalt inte far korrekt user-context.
+- Forvantat utfall ar ofta 0 rader/deny for tenant-scopad data, vilket kan maskeras av fallback till MongoDB.
+- Slutsats: pathen ar en teknisk foundation, men inte bevisad RLS-korrekt lasvag for produktion.
+
+### Minimikrav innan live read via Supabase
+
+- Supabase-anrop maste goras med riktig anvandar-token i `Authorization` (inte enbart anon key).
+- Verifiera i staging/dev att owner/admin/receptionist/mechanic/viewer far korrekt tenant/workshop-scope.
+- Verifiera att cross-tenant/cross-workshop ger 0 rader.
+- Behall MongoDB som default tills ovan ar passerat med syntetisk data.
+
 ## 1) Mal med verifieringsfasen
 
 - Bekrafta tenant-isolering for alla SELECT-policies.

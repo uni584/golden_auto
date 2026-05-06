@@ -18,6 +18,7 @@ Detta dokument planerar **forsta sakra read-only integrationen** av Supabase i G
 - Nar flaggan ar `true`: backend forsoker Supabase read-only for customers.
 - Vid saknad Supabase-config eller read-fel: kontrollerad fallback till MongoDB.
 - Inga Supabase writes introducerade.
+- **Auth/RLS-gap kvarstar:** nuvarande path skickar `SUPABASE_ANON_KEY` men inte anvandarens Supabase access token.
 
 ### Miljovariabler for Fas 1A
 
@@ -25,6 +26,56 @@ Detta dokument planerar **forsta sakra read-only integrationen** av Supabase i G
 - `SUPABASE_URL=...`
 - `SUPABASE_ANON_KEY=...`
 - `SUPABASE_CUSTOMERS_TIMEOUT_SEC=5` (valfri, default 5 sek)
+
+## Auth/RLS-gap for nuvarande customers-read
+
+### Nuvarande tekniska beteende
+
+- `GET /api/customers` anropar Supabase REST med:
+  - `apikey: SUPABASE_ANON_KEY`
+  - `Authorization: Bearer SUPABASE_ANON_KEY`
+- Nuvarande backend-session/JWT vidarebefordras **inte** till Supabase.
+
+### Konsekvens for RLS (`auth.uid()`)
+
+- RLS i Golden Auto bygger pa `auth.uid()` + `tenant_members` + `workshop_members`.
+- Nar endast anon-nyckel anvands blir anvandarkontexten inte en riktig inloggad tenant-user.
+- Resultat blir normalt att RLS inte hittar aktiv medlemskap-kedja och read blir:
+  - 0 rader (vanligast), eller
+  - deny/ej forventat svar beroende pa policy/endpoint-konfiguration.
+- Backend fallbackar da till MongoDB, vilket gor detta till en teknisk foundation men inte verifierad Supabase-RLS read i produktion.
+
+## Varfor Fas 1A inte ar live-redo an
+
+- Pathen ar korrekt som feature-flaggad, fail-safe experimentvag.
+- Men den ar **inte** live-redo for tenant-saker domandata eftersom Supabase-anropet saknar riktig anvandar-JWT for RLS-evaluering.
+- MongoDB ska darfor fortsatt vara default tills JWT-kedjan ar verifierad i staging/dev.
+
+## Rekommenderad saker losning innan live
+
+Valj en av dessa RLS-kompatibla modeller (utan service role-bypass for vanlig customers-read):
+
+1. **Token forwarding (rekommenderad):**
+   - Klient skickar Supabase access token till backend.
+   - Backend validerar sessionskrav enligt befintlig auth-strategi.
+   - Backend anropar Supabase med `Authorization: Bearer <user_supabase_jwt>` och `apikey`.
+   - RLS utvarderas da mot faktisk `auth.uid()`.
+
+2. **Backend mint/verifiera korrekt user-token:**
+   - Backend verifierar anvandaridentitet och etablerar en Supabase-kompatibel JWT-kontekst per request.
+   - Samma princip: Supabase-anrop sker med user-context, inte anon-only.
+
+3. **Kontrollerad server-side losning med fortsatt RLS:**
+   - Endast om den bevarar user-level policy-evaluering.
+   - Ingen generell service-role read for customers-listning.
+
+## Verifiering som maste goras i staging/dev
+
+- Testa samma endpoint med minst rollerna owner/admin/receptionist/mechanic/viewer.
+- Bekrafta att RLS-scope foljer tenant/workshop for varje roll.
+- Bekrafta att cross-tenant och ej-workshop-access ger 0 rader.
+- Bekrafta att fallback till MongoDB sker kontrollerat vid token-konfig-fel.
+- Endast syntetisk data i alla tester.
 
 ## 1) Rekommenderad forsta read-only scope
 
@@ -155,11 +206,12 @@ Foreslagna filer/omraden att andra i nasta kodprompt:
 
 ## 8) Rekommenderad nasta kodprompt (smal)
 
-**Mal:** Implementera endast `customers` read-only via backend med feature flag.
+**Mal:** Implementera JWT-kedjan for Supabase user-context i `customers` read-only path (fortfarande inga writes).
 
 **Tillatna filer i nasta steg:**
+- backend auth/service-lager for token forwarding/verifiering
 - backend service/repository filer for Supabase customers read
-- backend config/env hantering for Supabase URL/nyckel + feature flag
+- backend config/env hantering for Supabase URL/nyckel + feature flag + ev token-installsningar
 - backend tester (smoke/unit) for nya read-only pathen
 - docs som beror read-only implementation
 
@@ -167,10 +219,12 @@ Foreslagna filer/omraden att andra i nasta kodprompt:
 - frontend UI-redesign
 - vehicles-read implementation
 - alla writes mot Supabase
+- service-role bypass av vanlig customers-read
 - migrationer, RLS-policyer, testsviter for databasmigrationer
 - auth-floden, MongoDB write-floden
 
 **Definition of done for nasta steg:**
-- Backend kan lasa `customers` read-only bakom flagga.
-- Returnerad payload ar faltminimerad.
-- MongoDB-flode ar oforandrat nar flagga ar av.
+- Backend skickar user-context JWT till Supabase read for `customers`.
+- RLS-scope verifierad i staging/dev for tenant/workshop/roller.
+- Returnerad payload ar fortsatt faltminimerad.
+- MongoDB-flode ar oforandrat nar flagga ar av eller Supabase read path ej verifierad.
