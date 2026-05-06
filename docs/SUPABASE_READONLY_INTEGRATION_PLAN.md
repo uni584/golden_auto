@@ -37,6 +37,14 @@ Detta dokument planerar **forsta sakra read-only integrationen** av Supabase i G
 - Returnerar endast minimal diagnostik (`authenticated`, `user_id`, `customers_read_token_usable`)
 - Ersatter inte faktisk auth-migration; den validerar endast tokenkedjan i dev/staging
 
+#### Snabb checklista och forvantade svar
+
+- Flag av -> `404`
+- Saknad token -> `401`
+- Felaktigt Bearer-format -> `400`
+- Ogiltig token -> `401`
+- Giltig Supabase access token -> `200` + `authenticated=true` + `user_id`
+
 ## Auth/RLS-gap for nuvarande customers-read
 
 ### Nuvarande tekniska beteende (sammanfattning)
@@ -90,11 +98,40 @@ Valj en av dessa RLS-kompatibla modeller (utan service role-bypass for vanlig cu
 
 ## Verifiering som maste goras i staging/dev
 
-- Testa samma endpoint med minst rollerna owner/admin/receptionist/mechanic/viewer.
-- Bekrafta att RLS-scope foljer tenant/workshop for varje roll.
-- Bekrafta att cross-tenant och ej-workshop-access ger 0 rader.
-- Bekrafta att fallback till MongoDB sker kontrollerat vid token saknas, ogiltigt format eller Supabase 401/403/non-200.
-- Endast syntetisk data i alla tester.
+Steg 1: verifiera auth smoke-check
+
+- Satt `SUPABASE_AUTH_CHECK_ENABLED=true` i dev/staging.
+- Testa endpointen med svarsmatrisen ovan.
+- Anvand endast syntetiska anvandare och hantera token utanför repo (ingen commit/logg).
+
+Steg 2: verifiera customers read-only mot RLS
+
+- Satt `SUPABASE_READONLY_CUSTOMERS_ENABLED=true` i dev/staging.
+- Skicka giltig Supabase access token i `Authorization: Bearer <token>`.
+- Bekrafta att RLS-scope foljer tenant/workshop per roll.
+- Bekrafta att cross-tenant/cross-workshop ger 0 rader.
+- I verifieringslaget: bevaka att MongoDB-fallback inte maskerar RLS-fel (tolka fallback som varningssignal under test).
+
+Rollmatris for manuell/dev-verifiering:
+
+- owner
+- admin
+- receptionist
+- mechanic
+- viewer
+- no membership
+- suspended
+- revoked
+- cross-tenant
+
+Guardrails:
+
+- Ingen frontend-auth migration an.
+- Ingen vehicles-koppling.
+- Inga writes.
+- Ingen service role.
+- Ingen riktig kunddata.
+- Ingen MongoDB-borttagning.
 
 ## 1) Rekommenderad forsta read-only scope
 
@@ -225,7 +262,7 @@ Foreslagna filer/omraden att andra i nasta kodprompt:
 
 ## 8) Rekommenderad nasta kodprompt (smal)
 
-**Mal:** Implementera JWT-kedjan for Supabase user-context i `customers` read-only path (fortfarande inga writes).
+**Mal:** Minimal token-forwarding i dev/staging sa backend far verklig Supabase access token i `Authorization` utan auth-redesign.
 
 **Tillatna filer i nasta steg:**
 - backend auth/service-lager for token forwarding/verifiering
@@ -243,7 +280,6 @@ Foreslagna filer/omraden att andra i nasta kodprompt:
 - auth-floden, MongoDB write-floden
 
 **Definition of done for nasta steg:**
-- Backend skickar user-context JWT till Supabase read for `customers`.
-- RLS-scope verifierad i staging/dev for tenant/workshop/roller.
-- Returnerad payload ar fortsatt faltminimerad.
-- MongoDB-flode ar oforandrat nar flagga ar av eller Supabase read path ej verifierad.
+- Smoke-check ar gron enligt svarsmatris.
+- Customers read-only ar gron for rollmatrisen med korrekt RLS-scope.
+- Vid misslyckad RLS/token: stoppa och atgarda auth/membership innan vidare tabeller.

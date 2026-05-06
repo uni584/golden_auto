@@ -68,6 +68,31 @@ Stegvis overgang:
   - `customers_read_token_usable`
 - Returnerar aldrig token/claims-dump.
 
+### Exakt verifieringsflode for `/api/dev/supabase-auth-check`
+
+Forberedelser (dev/staging):
+
+- `SUPABASE_AUTH_CHECK_ENABLED=true`
+- `SUPABASE_URL` satt
+- `SUPABASE_ANON_KEY` satt
+- Endast syntetiska testanvandare
+
+Request:
+
+- `GET /api/dev/supabase-auth-check`
+- Header: `Authorization: Bearer <supabase_access_token>`
+
+Forvantade svar:
+
+- Flag av (`SUPABASE_AUTH_CHECK_ENABLED=false`) -> `404`
+- Saknad token/header -> `401`
+- Felaktigt Authorization-format (inte giltig Bearer) -> `400`
+- Ogiltig/utgangen token -> `401`
+- Giltig Supabase token -> `200` med:
+  - `authenticated: true`
+  - `user_id: <uuid>`
+  - `customers_read_token_usable: true`
+
 ## 4) Dev/staging-verifiering (syntetiska anvandare)
 
 Verifiera minst dessa identiteter:
@@ -88,6 +113,7 @@ Kontroller:
 - Kontrollerad fallback till MongoDB om token saknas/ogiltig.
 - Ingen token i loggar eller felmeddelanden.
 - Endast syntetisk data.
+- Ingen token committas och ingen token loggas.
 
 ## 5) Rekommenderat nasta smala kodsteg
 
@@ -100,6 +126,10 @@ Mal:
 - Ingen write och ingen frontend-redesign.
 
 Alternativt (om nuvarande frontend auth redan enkelt kan kompletteras): minimal token-forwarding i frontend request-lager utan UI-andring.
+
+### Stoppregel vid fel
+
+- Om smoke-check eller customers RLS-scope fallerar: stoppa vidare integration och atgarda auth/membership-kedjan forst.
 
 ## 6) Sakerhetskrav under hela overgangen
 

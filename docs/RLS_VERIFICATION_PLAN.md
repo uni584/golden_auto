@@ -152,18 +152,26 @@ Denna punkt kompletterar migrations-/RLS-regressionen med appnara read-only kont
   - MongoDB fortsatter som aktiv kalla tills read-only verifierats i praktiken
   - Supabase-lasning introduceras bakom feature flag i backend
 
-### Auth/RLS-gap i nuvarande backend-read path (viktig blockerare)
+### Dev/staging auth smoke-check (obligatorisk fore RLS-read verifiering)
 
-- Nuvarande customers-read path anropar Supabase med anon key men utan anvandarens Supabase JWT.
-- Det betyder att `auth.uid()`-baserade RLS-policyer normalt inte far korrekt user-context.
-- Forvantat utfall ar ofta 0 rader/deny for tenant-scopad data, vilket kan maskeras av fallback till MongoDB.
-- Slutsats: pathen ar en teknisk foundation, men inte bevisad RLS-korrekt lasvag for produktion.
+- Endpoint: `GET /api/dev/supabase-auth-check`
+- Flagga: `SUPABASE_AUTH_CHECK_ENABLED` (default `false`)
+- Kraver `Authorization: Bearer <supabase_access_token>`
+- Forvantade svar:
+  - flagga av -> `404`
+  - saknad token -> `401`
+  - malformed Bearer -> `400`
+  - ogiltig token -> `401`
+  - giltig token -> `200` med `authenticated=true`, `user_id`, `customers_read_token_usable=true`
+- Endast syntetiska anvandare/token i dev/staging; inga tokens i logg/repo.
 
 ### Minimikrav innan live read via Supabase
 
 - Supabase-anrop maste goras med riktig anvandar-token i `Authorization` (inte enbart anon key).
 - Verifiera i staging/dev att owner/admin/receptionist/mechanic/viewer far korrekt tenant/workshop-scope.
 - Verifiera att cross-tenant/cross-workshop ger 0 rader.
+- Verifiera `no membership`, `suspended`, `revoked` -> 0 rader.
+- I verifieringslage: MongoDB-fallback far inte tolkas som gront RLS-resultat.
 - Behall MongoDB som default tills ovan ar passerat med syntetisk data.
 
 ## 1) Mal med verifieringsfasen
