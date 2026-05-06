@@ -63,12 +63,29 @@ SUPABASE_CUSTOMERS_SELECT = ",".join([
 ])
 
 
-async def fetch_customers_from_supabase(q: Optional[str]) -> Optional[List[dict]]:
+def extract_bearer_token(authorization_header: Optional[str]) -> Optional[str]:
+    if not authorization_header:
+        return None
+    auth_value = authorization_header.strip()
+    if not auth_value.startswith("Bearer "):
+        return None
+    token = auth_value[7:].strip()
+    if not token or " " in token:
+        return None
+    return token
+
+
+async def fetch_customers_from_supabase(q: Optional[str], authorization_header: Optional[str]) -> Optional[List[dict]]:
     if not SUPABASE_READONLY_CUSTOMERS_ENABLED:
         return None
 
     if not SUPABASE_URL or not SUPABASE_ANON_KEY:
         logger.warning("Supabase customers read-only enabled but config missing; falling back to MongoDB")
+        return None
+
+    user_access_token = extract_bearer_token(authorization_header)
+    if not user_access_token:
+        logger.info("Supabase customers read-only missing bearer user token; falling back to MongoDB")
         return None
 
     url = f"{SUPABASE_URL.rstrip('/')}/rest/v1/customers"
@@ -85,7 +102,7 @@ async def fetch_customers_from_supabase(q: Optional[str]) -> Optional[List[dict]
 
     headers = {
         "apikey": SUPABASE_ANON_KEY,
-        "Authorization": f"Bearer {SUPABASE_ANON_KEY}",
+        "Authorization": f"Bearer {user_access_token}",
         "Accept": "application/json",
     }
 
@@ -97,7 +114,10 @@ async def fetch_customers_from_supabase(q: Optional[str]) -> Optional[List[dict]
         return None
 
     if resp.status_code != 200:
-        logger.warning("Supabase customers read returned non-200 (%s); falling back to MongoDB", resp.status_code)
+        if resp.status_code in (401, 403):
+            logger.warning("Supabase customers read unauthorized/forbidden; falling back to MongoDB")
+        else:
+            logger.warning("Supabase customers read returned non-200 (%s); falling back to MongoDB", resp.status_code)
         return None
 
     try:
@@ -410,8 +430,8 @@ async def users_delete(uid: str, user: dict = Depends(require_roles("superadmin"
 
 # ===== CUSTOMERS =====
 @api.get("/customers")
-async def customers_list(q: Optional[str] = None, user: dict = Depends(get_current_user)):
-    supabase_rows = await fetch_customers_from_supabase(q)
+async def customers_list(q: Optional[str] = None, request: Request = None, user: dict = Depends(get_current_user)):
+    supabase_rows = await fetch_customers_from_supabase(q, request.headers.get("Authorization") if request else None)
     if supabase_rows is not None:
         return supabase_rows
 

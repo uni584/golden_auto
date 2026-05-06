@@ -18,7 +18,7 @@ Detta dokument planerar **forsta sakra read-only integrationen** av Supabase i G
 - Nar flaggan ar `true`: backend forsoker Supabase read-only for customers.
 - Vid saknad Supabase-config eller read-fel: kontrollerad fallback till MongoDB.
 - Inga Supabase writes introducerade.
-- **Auth/RLS-gap kvarstar:** nuvarande path skickar `SUPABASE_ANON_KEY` men inte anvandarens Supabase access token.
+- **Auth/RLS-gap delvis atgardat:** backend forbereder nu user-JWT passthrough genom att lasa inkommande `Authorization: Bearer <token>` for Supabase-read.
 
 ### Miljovariabler for Fas 1A
 
@@ -33,29 +33,30 @@ Detta dokument planerar **forsta sakra read-only integrationen** av Supabase i G
 
 - `GET /api/customers` anropar Supabase REST med:
   - `apikey: SUPABASE_ANON_KEY`
-  - `Authorization: Bearer SUPABASE_ANON_KEY`
-- Nuvarande backend-session/JWT vidarebefordras **inte** till Supabase.
+  - `Authorization: Bearer <inkommande user token>` om giltig Bearer-header finns
+- Om giltig Bearer-header saknas fallbackar pathen till MongoDB.
+- `SUPABASE_ANON_KEY` anvands **inte** som user-authorization.
 
 ### Konsekvens for RLS (`auth.uid()`)
 
 - RLS i Golden Auto bygger pa `auth.uid()` + `tenant_members` + `workshop_members`.
 - Nar endast anon-nyckel anvands blir anvandarkontexten inte en riktig inloggad tenant-user.
-- Resultat blir normalt att RLS inte hittar aktiv medlemskap-kedja och read blir:
-  - 0 rader (vanligast), eller
-  - deny/ej forventat svar beroende pa policy/endpoint-konfiguration.
-- Backend fallbackar da till MongoDB, vilket gor detta till en teknisk foundation men inte verifierad Supabase-RLS read i produktion.
+- Om inkommande token inte ar Supabase-kompatibel user token kan read bli:
+  - 401/403, eller
+  - 0 rader beroende pa policy och JWT-innehall.
+- Vid deny/non-200 sker kontrollerad fallback till MongoDB.
 
 ## Varfor Fas 1A inte ar live-redo an
 
 - Pathen ar korrekt som feature-flaggad, fail-safe experimentvag.
-- Men den ar **inte** live-redo for tenant-saker domandata eftersom Supabase-anropet saknar riktig anvandar-JWT for RLS-evaluering.
+- Men den ar fortfarande **inte** live-redo for tenant-saker domandata forran frontend/auth faktiskt levererar en giltig Supabase user access token i request.
 - MongoDB ska darfor fortsatt vara default tills JWT-kedjan ar verifierad i staging/dev.
 
 ## Rekommenderad saker losning innan live
 
 Valj en av dessa RLS-kompatibla modeller (utan service role-bypass for vanlig customers-read):
 
-1. **Token forwarding (rekommenderad):**
+1. **Token forwarding (rekommenderad, delvis forberedd):**
    - Klient skickar Supabase access token till backend.
    - Backend validerar sessionskrav enligt befintlig auth-strategi.
    - Backend anropar Supabase med `Authorization: Bearer <user_supabase_jwt>` och `apikey`.
@@ -74,7 +75,7 @@ Valj en av dessa RLS-kompatibla modeller (utan service role-bypass for vanlig cu
 - Testa samma endpoint med minst rollerna owner/admin/receptionist/mechanic/viewer.
 - Bekrafta att RLS-scope foljer tenant/workshop for varje roll.
 - Bekrafta att cross-tenant och ej-workshop-access ger 0 rader.
-- Bekrafta att fallback till MongoDB sker kontrollerat vid token-konfig-fel.
+- Bekrafta att fallback till MongoDB sker kontrollerat vid token saknas, ogiltigt format eller Supabase 401/403/non-200.
 - Endast syntetisk data i alla tester.
 
 ## 1) Rekommenderad forsta read-only scope

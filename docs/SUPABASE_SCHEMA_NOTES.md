@@ -269,6 +269,7 @@ Nasta steg: kor pgTAP-regression (`npx supabase test db`) enligt `docs/RLS_VERIF
 ### Auth/RLS-forutsattning for backend read-only
 
 - RLS-modellen i Supabase forutsatter riktig user-context (`auth.uid()`), kopplad till `tenant_members` och `workshop_members`.
-- En backend-read path som endast anvander anon key ar inte tillracklig for verifierad tenant/workshop-lasning.
-- Darfor ar nuvarande customers read-only path att betrakta som **foundation/steg 1**, inte slutlig live-losning.
-- Innan live maste backend-anropet till Supabase ske med anvandarens JWT-kontekst (utan service-role bypass for vanlig domandata).
+- Backend har nu forberedelse for passthrough av inkommande Bearer user-token till Supabase customers-read.
+- `SUPABASE_ANON_KEY` anvands som `apikey`, men inte som user `Authorization`.
+- Pathen ar fortfarande **foundation/steg 1** tills frontend/auth levererar verklig Supabase user token i request och detta ar verifierat i staging/dev.
+- Ingen service-role bypass far anvandas for vanlig domandata-read.
