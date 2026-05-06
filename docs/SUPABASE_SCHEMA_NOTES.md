@@ -225,8 +225,11 @@ Nasta steg: kor pgTAP-regression (`npx supabase test db`) enligt `docs/RLS_VERIF
 ### Planerad rollout `0011+` (audit)
 
 - Styrd av **`docs/AUDIT_LOGGING_PLAN.md`**.
-- Rekommenderad **`0011+`**:
-  - `booking.*`, `quote.*`, `quote_item.*`, `work_order.*`, `tire_hotel.*`
+- Rekommenderad **`0011`** (minsta säkra scope):
+  - `booking.created`, `booking.updated`
+  - `work_order.created`, `work_order.updated`
+- Rekommenderad **`0012+`**:
+  - `quote.*`, `quote_item.*`, `tire_hotel.*`
   - membership/admin-audit när säkra skrivvägar finns
   - correlation-id från backend/request-lager
   - retention/export-policy

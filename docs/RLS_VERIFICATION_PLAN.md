@@ -11,13 +11,14 @@ Detta dokument beskriver en saker verifieringsfas for RLS SELECT-lagret (`0003` 
 - **`0008` — receipts:** ingen fri klient-`INSERT`; skapande via **`public.create_receipt(...)`** for **owner**/**admin**; direkt `UPDATE`/`DELETE` nekas med **`receipts_deny_client_*`**-policies (RAISE). **W71–W90:** happy path, rollnekanden, cross-tenant/workshop, fel bokning/AO/offert, belopp/status, `created_by`.
 - **`0009` — audit foundation:** `public.audit_events` + RLS `SELECT` endast owner/admin i tenant; intern `append_audit_event(...)` (ej klient-anropbar); audit kopplad till `update_vehicle_registration_fields` och `create_receipt`. **W91–W118** verifierar direct write-nekande, role-based SELECT, cross-tenant, RPC-genererade audit-rader och metadata-minimering.
 - **`0010` — customer/vehicle audit triggers:** `customer.created`, `customer.updated`, `vehicle.created`, `vehicle.updated` via triggers; metadata begransas till `changed_fields` (update) och `{}` (insert). Reg-falt exkluderas i vehicle-trigger och RPC-handelser for `vehicle.registration_updated` forblir primara.
-- **Planerad `0011+` audit rollout:** enligt `docs/AUDIT_LOGGING_PLAN.md` for bookings/quotes/work_orders/tire_hotel och membership/admin.
+- **Planerad `0011+` audit rollout:** enligt `docs/AUDIT_LOGGING_PLAN.md` — rekommenderad `0011` for `booking.*` + `work_order.*`; `0012+` for `quote.*`, `quote_item.*`, `tire_hotel.*` samt membership/admin.
 - **Innan produktionsklar regnr:** backend/Edge-normalisering, riktig hash/kryptering, KMS/Vault och nyckelrotation, INSERT-hardning (ev. RPC/kolumnprivilegier), audit-loggning — se `docs/RECEIPTS_AND_REGISTRATION_SECURITY_PLAN.md`.
 - **Receipts (produktion):** void/betalnings-RPC, Edge/backend, audit — se **`docs/RECEIPTS_AND_REGISTRATION_SECURITY_PLAN.md`**.
 
 ### Planerad verifiering for audit rollout (`0011+`)
 
-- Bekrafta att kommande trigger-audit i `0011+` skapar avsedda events for nasta tabellgrupp.
+- Bekrafta att trigger-audit i `0011` skapar `booking.created`, `booking.updated`, `work_order.created`, `work_order.updated`.
+- Bekrafta att senare `0012+` utokar med `quote.*`, `quote_item.*`, `tire_hotel.*` utan regressionsrisk.
 - Bekrafta att metadata fortsatt **inte** innehaller `reg_number_*`, tokens, hemligheter eller fulla row snapshots.
 - Bekrafta fortsatt read-modell pa `audit_events`: owner/admin kan lasa egen tenant; mechanic/receptionist/viewer far 0 rader; cross-tenant nekas.
 - Hall `npx supabase test db` gron efter varje delsteg (undvik stor "allt pa en gang"-migration).
