@@ -1,6 +1,6 @@
 # Audit logging — plan för foundation (pre-implementation)
 
-Detta dokument är **besluts- och planunderlag** för Golden Autos **append-only audit**. Foundation är nu implementerad i **`0009_audit_events_foundation.sql`**; dokumentet beskriver både vad som är klart och vad som återstår i `0010+`.
+Detta dokument är **besluts- och planunderlag** för Golden Autos **append-only audit**. Foundation är implementerad i **`0009_audit_events_foundation.sql`** och första bredare rollout i **`0010_customer_vehicle_audit_triggers.sql`**; dokumentet beskriver vad som är klart och vad som återstår i `0011+`.
 
 **Relaterat:** `docs/RLS_WRITE_POLICY_PLAN.md`, `docs/RLS_POLICY_PLAN.md`, `docs/SUPABASE_SCHEMA_NOTES.md`, `docs/RECEIPTS_AND_REGISTRATION_SECURITY_PLAN.md` (§3 audit).
 
@@ -55,14 +55,14 @@ Detta dokument är **besluts- och planunderlag** för Golden Autos **append-only
 
 ## 3. Händelser att logga
 
-### 3.1 Först i implementation (klart i `0009`)
+### 3.1 Först i implementation (klart i `0009` + `0010`)
 
 | Område | `action` (förslag) | `resource_type` | Kommentar |
 |--------|-------------------|-----------------|-----------|
 | Registreringsfält | `vehicle.registration_updated` | `vehicle` | Efter **`update_vehicle_registration_fields`**; metadata innehåller endast `changed_fields`. |
 | Kvitto | `receipt.created` | `receipt` | Efter **`create_receipt`**; metadata innehåller endast `payment_status` och `currency`. |
-| Kund | `customer.created` / `customer.updated` | `customer` | **Återstår** i senare migration(er). |
-| Fordon (övrigt) | `vehicle.created` / `vehicle.updated` | `vehicle` | **Återstår** i senare migration(er). |
+| Kund | `customer.created` / `customer.updated` | `customer` | **Implementerat i `0010`** via triggers med minimal metadata. |
+| Fordon (övrigt) | `vehicle.created` / `vehicle.updated` | `vehicle` | **Implementerat i `0010`** via triggers; reg-fält exkluderas. |
 
 ### 3.2 Medel prioritet (kort efter v1)
 
@@ -102,6 +102,38 @@ Detta dokument är **besluts- och planunderlag** för Golden Autos **append-only
    - **`update_vehicle_registration_fields`** — ett append efter lyckad uppdatering.
    - **`create_receipt`** — ett append efter lyckad insert.
 5. **Lämnar triggers** på `customers`, `vehicles` (icke-reg), `bookings`, `quotes`, `quote_items`, `work_orders`, `tire_hotel` till senare för att undvika dubbelloggning i foundation.
+
+## 5b. Migration `0010` (genomfört)
+
+### 5b.1 Vad `0010` gör
+
+- Trigger-audit på `customers`:
+  - `customer.created` (AFTER INSERT)
+  - `customer.updated` (AFTER UPDATE)
+- Trigger-audit på `vehicles`:
+  - `vehicle.created` (AFTER INSERT)
+  - `vehicle.updated` (AFTER UPDATE)
+- Triggerfunktioner anropar intern `append_audit_event(...)`.
+- `auth.uid()` krävs för app-audit; seed/superuser utan auth-kontext skapar inte app-audit-rader.
+- Metadata:
+  - INSERT: `{}` (ingen payloaddump)
+  - UPDATE: `changed_fields` (fältnamn), inga row snapshots.
+
+### 5b.2 Regnummer-skydd och dubbelloggning
+
+- `vehicle.updated` exkluderar alltid:
+  - `reg_number_ciphertext`
+  - `reg_number_hash`
+  - `reg_number_last4`
+- Om endast regfält/systemfält ändras i vehicle-update skapas **ingen** `vehicle.updated`.
+- Primär reg-händelse förblir:
+  - `vehicle.registration_updated` via `update_vehicle_registration_fields` (RPC).
+
+### 5b.3 Verifiering (pgTAP)
+
+- write-sviten verifierar `customer.created`, `customer.updated`, `vehicle.created`, `vehicle.updated`.
+- write-sviten verifierar att vehicle-trigger metadata saknar `reg_number_*`.
+- write-sviten verifierar att `vehicle.registration_updated` fortfarande skapas via RPC.
 
 ### 5.2 Vad som medvetet kan vänta
 
@@ -158,7 +190,7 @@ Ny eller utökad **pgTAP**-fil, t.ex. `audit_events.test.sql` eller utökning av
 ### 6.3 Metadata-regler för `0010+`
 
 - **Tillåtet (baseline):**
-  - `changed_fields` (array av fältnamn)
+  - `changed_fields` (array av fältnamn, inte värden)
   - säkra statusfält (`status`, `payment_status`)
   - ofarliga enum-/kodfält (`currency`, `season`, `item_type`, `source`)
 - **Förbjudet:**
@@ -167,26 +199,7 @@ Ny eller utökad **pgTAP**-fil, t.ex. `audit_events.test.sql` eller utökning av
   - fulla row snapshots (`old_row`, `new_row`, stora JSON-dumpar)
   - onödig PII (namn, e-post, telefon, adress) när `resource_id` redan finns
 
-### 6.4 Rekommenderad migration `0010` (liten första grupp)
-
-**Scope för `0010` (rekommenderad):**
-- Trigger-audit för:
-  - `customer.created`
-  - `customer.updated`
-  - `vehicle.created`
-  - `vehicle.updated` (**exkludera reg-fält i metadata**)
-- Ingen ny audit på övriga tabeller i samma migration.
-
-**Varför denna grupp först:**
-- Högst affärs- och integritetsrisk utanför redan auditerade RPC-flöden.
-- Begränsad blast radius och enkel verifiering.
-- Undviker att rulla ut 14 nya actions samtidigt.
-
-**Testfall för `0010`:**
-- write-sviten verifierar att `INSERT`/`UPDATE` i ovan tabeller skapar exakt 1 audit-rad per operation.
-- metadata innehåller `changed_fields` men inga förbjudna nycklar (`reg_number_*`, `token`, `password`).
-- owner/admin kan läsa; mechanic/receptionist/viewer kan inte läsa.
-- cross-tenant SELECT på audit fortsatt blockerad.
+### 6.4 Rekommenderad migration `0011+` (nästa steg efter `0010`)
 
 **Ska vänta till `0011+`:**
 - `bookings`, `quotes`, `quote_items`, `work_orders`, `tire_hotel`
@@ -201,6 +214,6 @@ Ny eller utökad **pgTAP**-fil, t.ex. `audit_events.test.sql` eller utökning av
 | Tabell | **`audit_events`** (append-only, §1). |
 | Först att logga | **`vehicle.registration_updated`** (RPC), **`receipt.created`** (RPC), därefter övriga domänobjekt enligt §3. |
 | Klientmanipulation | **Ingen** klient-`INSERT`/`UPDATE`/`DELETE`; skrivning via **definer** + intern append; **RLS** på `SELECT` till **owner/admin** i v1. |
-| Nästa kodsteg | **Ja:** kör **`0010`** med liten trigger-grupp (`customer.*`, `vehicle.*` exkl. reg-värden), därefter `0011+` för övriga tabeller och membership/admin-audit. |
+| Nästa kodsteg | **Ja:** kör **`0011+`** för `booking/quote/quote_item/work_order/tire_hotel`, därefter membership/admin-audit, backend-correlation-id och retention/export. |
 
-*Senast uppdaterad: `0009` implementerad och verifierad i pgTAP.*
+*Senast uppdaterad: `0010` implementerad och verifierad i pgTAP.*

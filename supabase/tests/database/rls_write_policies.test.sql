@@ -1,7 +1,7 @@
--- RLS write policy tests for migrations 0005–0009 (synthetic data only)
+-- RLS write policy tests for migrations 0005–0010 (synthetic data only)
 --
 -- Assumptions:
---   * Runs after migrations 0001–0009.
+--   * Runs after migrations 0001–0010.
 --   * Seed INSERTs run as session superuser (RLS bypass). DML tests use SET LOCAL ROLE authenticated.
 --   * Receptionist write in 0005 requires BOTH:
 --       - tenant_members.role = 'receptionist' AND membership_status = 'active'
@@ -200,7 +200,7 @@ values (
 -- ---------------------------------------------------------------------------
 -- pgTAP plan: lives_ok / throws_matching / is (32 SELECT-svit ar separat fil)
 -- ---------------------------------------------------------------------------
-select plan(122);
+select plan(129);
 
 -- profiles: self update OK
 select lives_ok(
@@ -1264,9 +1264,13 @@ select throws_matching(
 );
 
 select is(
-  (select count(*)::bigint from public.audit_events where tenant_id = '70000001-0000-4000-8000-000000000001'::uuid),
-  4::bigint,
-  'W92: audit events created by audited RPC flows (W47, W48, W71, W72)'
+  (
+    select count(*)::bigint
+    from public.audit_events
+    where tenant_id = '70000001-0000-4000-8000-000000000001'::uuid
+  ),
+  11::bigint,
+  'W92: audit events include RPC + customer/vehicle trigger flow rows'
 );
 
 select lives_ok(
@@ -1291,14 +1295,38 @@ select lives_ok(
 
 select is(
   (select count(*)::bigint from public.audit_events where tenant_id = '70000001-0000-4000-8000-000000000001'::uuid),
-  4::bigint,
+  11::bigint,
   'W94b: direct client DELETE on audit_events is effectively denied'
+);
+
+select is(
+  (select count(*)::bigint from public.audit_events where action = 'customer.created'),
+  3::bigint,
+  'W95a: customer INSERT flows produce customer.created audit'
+);
+
+select is(
+  (select count(*)::bigint from public.audit_events where action = 'customer.updated'),
+  1::bigint,
+  'W95b: customer UPDATE flow produces customer.updated audit'
+);
+
+select is(
+  (select count(*)::bigint from public.audit_events where action = 'vehicle.created'),
+  2::bigint,
+  'W95c: vehicle INSERT flows produce vehicle.created audit'
+);
+
+select is(
+  (select count(*)::bigint from public.audit_events where action = 'vehicle.updated'),
+  1::bigint,
+  'W95d: vehicle UPDATE flow produces vehicle.updated audit'
 );
 
 select is(
   (select count(*)::bigint from public.audit_events where action = 'vehicle.registration_updated'),
   2::bigint,
-  'W95: vehicle registration RPC writes audit events'
+  'W95e: vehicle registration RPC writes audit events'
 );
 
 select is(
@@ -1333,20 +1361,65 @@ select is(
 );
 
 select is(
+  (
+    select count(*)::bigint
+    from public.audit_events
+    where action in ('customer.created', 'customer.updated')
+      and (
+        metadata::text ilike '%Synth%'
+        or metadata::text ilike '%@example.test%'
+        or metadata::text ilike '%phone%'
+        or metadata::text ilike '%address%'
+      )
+  ),
+  0::bigint,
+  'W98a: customer audit metadata excludes PII payload'
+);
+
+select is(
+  (
+    select count(*)::bigint
+    from public.audit_events
+    where action in ('vehicle.created', 'vehicle.updated')
+      and (
+        metadata ?| array['reg_number_ciphertext', 'reg_number_hash', 'reg_number_last4']
+        or metadata::text ilike '%reg_number_%'
+      )
+  ),
+  0::bigint,
+  'W98b: vehicle trigger audit metadata excludes reg_number_*'
+);
+
+select is(
+  (
+    select count(*)::bigint
+    from public.audit_events
+    where action = 'vehicle.updated'
+      and (
+        metadata::text ilike '%reg_number_ciphertext%'
+        or metadata::text ilike '%reg_number_hash%'
+        or metadata::text ilike '%reg_number_last4%'
+      )
+  ),
+  0::bigint,
+  'W98c: no unsafe vehicle.updated metadata from registration updates'
+);
+
+select is(
   (select count(*)::bigint from public.audit_events where actor_user_id = 'f7000001-0000-4000-8000-000000000001'::uuid),
-  2::bigint,
+  6::bigint,
   'W99: owner actor is captured in audit events'
 );
 
 select is(
   (select count(*)::bigint from public.audit_events where actor_user_id = 'f7000002-0000-4000-8000-000000000001'::uuid),
-  1::bigint,
+  2::bigint,
   'W100: admin actor is captured in audit events'
 );
 
 select is(
   (select count(*)::bigint from public.audit_events where actor_user_id = 'f7000003-0000-4000-8000-000000000001'::uuid),
-  1::bigint,
+  3::bigint,
   'W101: receptionist actor captured for allowed reg RPC'
 );
 
@@ -1359,7 +1432,7 @@ select is(
       and ae.resource_id = 'd7000a01-0000-4000-8000-000000000001'::uuid
       and ae.workshop_id = '70100001-0000-4000-8000-000000000001'::uuid
   ),
-  1::bigint,
+  3::bigint,
   'W102: vehicle audit row contains tenant/workshop/resource context'
 );
 
@@ -1398,7 +1471,7 @@ select is(
       $i$select count(*)::bigint from public.audit_events$i$
     )
   ),
-  4::bigint,
+  11::bigint,
   'W105: owner can SELECT tenant A audit events'
 );
 
@@ -1409,7 +1482,7 @@ select is(
       $i$select count(*)::bigint from public.audit_events$i$
     )
   ),
-  4::bigint,
+  11::bigint,
   'W106: admin can SELECT tenant A audit events'
 );
 
@@ -1479,10 +1552,10 @@ select is(
   (
     select count(*)::bigint
     from public.audit_events ae
-    where ae.action in ('vehicle.registration_updated', 'receipt.created')
+    where ae.action in ('vehicle.registration_updated', 'receipt.created', 'customer.created', 'customer.updated', 'vehicle.created', 'vehicle.updated')
       and ae.resource_id is not null
   ),
-  4::bigint,
+  11::bigint,
   'W114: audited RPC rows include resource ids'
 );
 
@@ -1518,10 +1591,10 @@ select is(
   (
     select count(*)::bigint
     from public.audit_events ae
-    where ae.action in ('vehicle.registration_updated', 'receipt.created')
+    where ae.action in ('vehicle.registration_updated', 'receipt.created', 'customer.created', 'customer.updated', 'vehicle.created', 'vehicle.updated')
       and ae.created_at is not null
   ),
-  4::bigint,
+  11::bigint,
   'W117: audit rows have created_at timestamps'
 );
 
