@@ -9,6 +9,7 @@ Detta dokument planerar **forsta sakra read-only integrationen** av Supabase i G
 - Ingen write mot Supabase i integrationsfas 1.
 - Ingen service role i frontend.
 - Endast syntetisk testdata i verifiering.
+- Full auth-overgang planeras i `docs/SUPABASE_AUTH_TRANSITION_PLAN.md`.
 
 ## Fas 1A status (implementerad, backend-only)
 
@@ -18,7 +19,7 @@ Detta dokument planerar **forsta sakra read-only integrationen** av Supabase i G
 - Nar flaggan ar `true`: backend forsoker Supabase read-only for customers.
 - Vid saknad Supabase-config eller read-fel: kontrollerad fallback till MongoDB.
 - Inga Supabase writes introducerade.
-- **Auth/RLS-gap delvis atgardat:** backend forbereder nu user-JWT passthrough genom att lasa inkommande `Authorization: Bearer <token>` for Supabase-read.
+- **Auth/RLS-gap delvis atgardat:** backend kan nu lasa och vidarebefordra inkommande `Authorization: Bearer <token>` till Supabase-read path.
 
 ### Miljovariabler for Fas 1A
 
@@ -29,7 +30,7 @@ Detta dokument planerar **forsta sakra read-only integrationen** av Supabase i G
 
 ## Auth/RLS-gap for nuvarande customers-read
 
-### Nuvarande tekniska beteende
+### Nuvarande tekniska beteende (sammanfattning)
 
 - `GET /api/customers` anropar Supabase REST med:
   - `apikey: SUPABASE_ANON_KEY`
@@ -51,6 +52,14 @@ Detta dokument planerar **forsta sakra read-only integrationen** av Supabase i G
 - Pathen ar korrekt som feature-flaggad, fail-safe experimentvag.
 - Men den ar fortfarande **inte** live-redo for tenant-saker domandata forran frontend/auth faktiskt levererar en giltig Supabase user access token i request.
 - MongoDB ska darfor fortsatt vara default tills JWT-kedjan ar verifierad i staging/dev.
+
+## Auth-overgang (nasta plansteg)
+
+- Se `docs/SUPABASE_AUTH_TRANSITION_PLAN.md` for detaljerad overgangsplan:
+  - nulagesanalys av dagens backend-auth
+  - krav for Supabase access token och `auth.uid()`-koppling
+  - stegvis migration utan att bryta befintligt appflode
+  - dev/staging-verifiering per roll och scope
 
 ## Rekommenderad saker losning innan live
 

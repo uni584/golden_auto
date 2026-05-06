@@ -257,6 +257,7 @@ Nasta steg: kor pgTAP-regression (`npx supabase test db`) enligt `docs/RLS_VERIF
 ## Planerad app-integration (read-only, ingen kod andrad an)
 
 - Se **`docs/SUPABASE_READONLY_INTEGRATION_PLAN.md`** for forsta steg i app-integration.
+- Se **`docs/SUPABASE_AUTH_TRANSITION_PLAN.md`** for auth/JWT-overgang till Supabase RLS-korrekt read.
 - Rekommenderad ordning:
   1) `customers` read-only via backend service layer
   2) `vehicles` read-only efter verifierad fas 1
