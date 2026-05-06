@@ -36,15 +36,15 @@ Detta dokument beskriver antaganden och avgransningar for det forsta schemautkas
   - gora jamforelser via hash
   - hantera dekryptering kontrollerat i applikations- eller DB-lager senare
 
-**Nasta steg (sakerhet, dokumentation):** `docs/RECEIPTS_AND_REGISTRATION_SECURITY_PLAN.md` beskriver strategi for **kvitton** och **regnr**; migration **`0007_registration_number_security_foundation.sql`** inför `update_vehicle_registration_fields` + trigger som blockerar direkt `UPDATE` av `reg_number_*` (ingen full kryptering an). Migration **`0008_receipts_rpc_foundation.sql`** inför `create_receipt` (RPC-first; ingen fri klient-`INSERT`/`UPDATE`/`DELETE` pa tabellen). Migration **`0009_audit_events_foundation.sql`** inför `audit_events` + intern append och audit-koppling till de två känsligaste RPC-flödena. Migration **`0010_customer_vehicle_audit_triggers.sql`** inför trigger-audit for customers/vehicles med metadata-begransning. Migration **`0011_booking_work_order_audit_triggers.sql`** inför operativ trigger-audit för bookings/work_orders.
+**Nasta steg (sakerhet, dokumentation):** `docs/RECEIPTS_AND_REGISTRATION_SECURITY_PLAN.md` beskriver strategi for **kvitton** och **regnr**; migration **`0007_registration_number_security_foundation.sql`** inför `update_vehicle_registration_fields` + trigger som blockerar direkt `UPDATE` av `reg_number_*` (ingen full kryptering an). Migration **`0008_receipts_rpc_foundation.sql`** inför `create_receipt` (RPC-first; ingen fri klient-`INSERT`/`UPDATE`/`DELETE` pa tabellen). Migration **`0009_audit_events_foundation.sql`** inför `audit_events` + intern append och audit-koppling till de två känsligaste RPC-flödena. Migration **`0010_customer_vehicle_audit_triggers.sql`** inför trigger-audit for customers/vehicles med metadata-begransning. Migration **`0011_booking_work_order_audit_triggers.sql`** inför operativ trigger-audit för bookings/work_orders. Migration **`0012_quote_tire_hotel_audit_triggers.sql`** inför operativ trigger-audit för quotes/quote_items/tire_hotel med parent-scope för quote_items.
 
 ## Audit-forberedelse
 
 - Alla centrala tabeller har `created_at` och `updated_at`.
 - Trigger-funktion `set_updated_at()` uppdaterar `updated_at` automatiskt vid `UPDATE`.
 - Falt for framtida actorsporning finns som `created_by` och `updated_by` (UUID) pa relevanta tabeller.
-- **Append-only audit implementerad i `0009` + utokad i `0010`/`0011`:** `audit_events`, owner/admin-READ i tenant, ingen klient-write, intern `append_audit_event` med metadata-guardrails samt trigger-audit for `customer.*`, `vehicle.*`, `booking.*`, `work_order.*`.
-- Full revisionshistorik per falt och extern actor-resolution skjuts till senare migrationer (**`0012+`**).
+- **Append-only audit implementerad i `0009` + utokad i `0010`/`0011`/`0012`:** `audit_events`, owner/admin-READ i tenant, ingen klient-write, intern `append_audit_event` med metadata-guardrails samt trigger-audit for `customer.*`, `vehicle.*`, `booking.*`, `work_order.*`, `quote.*`, `quote_item.*`, `tire_hotel.*`.
+- Full revisionshistorik per falt och extern actor-resolution skjuts till senare migrationer (**`0013+`**).
 
 ## Affarsantaganden i utkastet
 
@@ -130,7 +130,7 @@ Kort sammanfattning:
 
 ## Sakerhetsgranskning och verifieringsfas (pre-write)
 
-Ny verifieringsplan: `docs/RLS_VERIFICATION_PLAN.md` (senast dokumenterat: **169/169 PASS** — SELECT **32/32**, WRITE **137/137** efter **`0011`**).
+Ny verifieringsplan: `docs/RLS_VERIFICATION_PLAN.md` (senast dokumenterat: **178/178 PASS** — SELECT **32/32**, WRITE **146/146** efter **`0012`**).
 
 Kort bedomning av 0003:
 
@@ -158,12 +158,12 @@ Migration: `supabase/migrations/0004_rls_select_hardening.sql`
 
 Genomford lokalt med Docker Desktop igang och `npx supabase db reset` (PowerShell, branch `main`):
 
-- Alla migrationer **`0001`–`0011`** applicerades utan SQL-fel som stoppade loppet.
+- Alla migrationer **`0001`–`0012`** applicerades utan SQL-fel som stoppade loppet.
 - Meddelandet `DROP POLICY IF EXISTS ... does not exist, skipping` under `0003` ar forvantat vid forsta korning (idempotent drop).
 - Varningen `no files matched pattern: supabase/seed.sql` betyder att ingen seed-fil finns; den blockerar inte reset. Lagg till syntetisk seed senare om onskat.
 - Ingen riktig kunddata anvandes.
 
-Nasta steg: kor pgTAP-regression (`npx supabase test db`) enligt `docs/RLS_VERIFICATION_PLAN.md` — **169/169** (32 SELECT + 137 WRITE) efter **`0011`**. Ingen service role i frontend.
+Nasta steg: kor pgTAP-regression (`npx supabase test db`) enligt `docs/RLS_VERIFICATION_PLAN.md` — **178/178** (32 SELECT + 146 WRITE) efter **`0012`**. Ingen service role i frontend.
 
 ## Automatiserad SELECT-RLS regression
 
@@ -172,11 +172,11 @@ Nasta steg: kor pgTAP-regression (`npx supabase test db`) enligt `docs/RLS_VERIF
 - Syntetiska `auth.users` och domandata endast; ingen riktig kunddata.
 - Senast kord: **32/32 PASS** (lokal Supabase via `npx`). Se aven `docs/RLS_VERIFICATION_PLAN.md` for tackning mot manuella T1–T17.
 
-## Automatiserad WRITE-RLS regression (0005 + 0006 + 0007 + 0008 + 0009 + 0010 + 0011)
+## Automatiserad WRITE-RLS regression (0005 + 0006 + 0007 + 0008 + 0009 + 0010 + 0011 + 0012)
 
-- Fil: `supabase/tests/database/rls_write_policies.test.sql` (pgTAP, **137** test).
+- Fil: `supabase/tests/database/rls_write_policies.test.sql` (pgTAP, **146** test).
 - Kors av samma `npx supabase test db` som SELECT-sviten efter `db reset`.
-- Senast kord: **137/137 PASS** tillsammans med SELECT (**169/169** totalt, 32+137). **`0007`:** **W46–W52** (reg-falt). **`0008`:** **W69**, **W71–W90** (`create_receipt`). **`0009`:** **W91–W118** (`audit_events` + audit via RPC). **`0010`:** customer/vehicle trigger-audit + metadata-skydd. **`0011`:** booking/work_order trigger-audit + metadata-skydd. Detaljer: `docs/RLS_WRITE_POLICY_PLAN.md`, `docs/RLS_VERIFICATION_PLAN.md`, `docs/AUDIT_LOGGING_PLAN.md`.
+- Senast kord: **146/146 PASS** tillsammans med SELECT (**178/178** totalt, 32+146). **`0007`:** **W46–W52** (reg-falt). **`0008`:** **W69**, **W71–W90** (`create_receipt`). **`0009`:** **W91–W118** (`audit_events` + audit via RPC). **`0010`:** customer/vehicle trigger-audit + metadata-skydd. **`0011`:** booking/work_order trigger-audit + metadata-skydd. **`0012`:** quote/quote_item/tire_hotel trigger-audit + metadata-skydd och parent-scope for quote_items. Detaljer: `docs/RLS_WRITE_POLICY_PLAN.md`, `docs/RLS_VERIFICATION_PLAN.md`, `docs/AUDIT_LOGGING_PLAN.md`.
 
 ## Write-policies
 
@@ -227,13 +227,20 @@ Nasta steg: kor pgTAP-regression (`npx supabase test db`) enligt `docs/RLS_VERIF
 - Trigger-audit for `bookings` (`booking.created`, `booking.updated`) och `work_orders` (`work_order.created`, `work_order.updated`).
 - INSERT-metadata: `{}` (ingen payload-dump).
 - UPDATE-metadata: `changed_fields` (fältnamn), utan snapshots; fritextfält exkluderas (`notes`, `assigned_to_label`).
-- Återstår: `quote.*`, `quote_item.*`, `tire_hotel.*`, membership/admin, backend `correlation_id`, retention/export-policy.
+- Återstår: membership/admin, backend `correlation_id`, retention/export-policy.
 
-### Planerad rollout `0012+` (audit)
+### Migration `0012_quote_tire_hotel_audit_triggers.sql`
+
+- Trigger-audit for `quotes` (`quote.created`, `quote.updated`), `quote_items` (`quote_item.created`, `quote_item.updated`) och `tire_hotel` (`tire_hotel.created`, `tire_hotel.updated`).
+- `quote_items` hämtar `tenant_id`/`workshop_id` från parent `quotes` för korrekt audit-scope.
+- INSERT-metadata: `{}` (ingen payload-dump).
+- UPDATE-metadata: `changed_fields` (fältnamn), utan snapshots; fritextfält exkluderas (`notes`, `description`, `tire_brand_model`, `tire_dimension`, `rack`).
+- Återstår: membership/admin, backend `correlation_id`, retention/export-policy.
+
+### Planerad rollout `0013+` (audit)
 
 - Styrd av **`docs/AUDIT_LOGGING_PLAN.md`**.
-- Rekommenderad **`0012+`**:
-  - `quote.*`, `quote_item.*`, `tire_hotel.*`
+- Rekommenderad **`0013+`**:
   - membership/admin-audit när säkra skrivvägar finns
   - correlation-id från backend/request-lager
   - retention/export-policy

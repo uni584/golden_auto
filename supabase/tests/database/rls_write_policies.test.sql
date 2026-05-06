@@ -1,7 +1,7 @@
--- RLS write policy tests for migrations 0005–0011 (synthetic data only)
+-- RLS write policy tests for migrations 0005–0012 (synthetic data only)
 --
 -- Assumptions:
---   * Runs after migrations 0001–0011.
+--   * Runs after migrations 0001–0012.
 --   * Seed INSERTs run as session superuser (RLS bypass). DML tests use SET LOCAL ROLE authenticated.
 --   * Receptionist write in 0005 requires BOTH:
 --       - tenant_members.role = 'receptionist' AND membership_status = 'active'
@@ -200,7 +200,7 @@ values (
 -- ---------------------------------------------------------------------------
 -- pgTAP plan: lives_ok / throws_matching / is (32 SELECT-svit ar separat fil)
 -- ---------------------------------------------------------------------------
-select plan(137);
+select plan(146);
 
 -- profiles: self update OK
 select lives_ok(
@@ -468,7 +468,7 @@ select throws_matching(
 -- quotes: update OK
 select lives_ok(
   $q$select pg_temp.run_as('f7000002-0000-4000-8000-000000000001'::uuid,
-    $i$update public.quotes set notes = 'admin note' where id = 'f8e00001-0000-4000-8000-000000000001'::uuid;$i$
+    $i$update public.quotes set status = 'sent' where id = 'f8e00001-0000-4000-8000-000000000001'::uuid;$i$
   );$q$,
   'W26: admin updates quote with workshop access'
 );
@@ -514,7 +514,7 @@ select throws_matching(
 -- quote_items: update OK
 select lives_ok(
   $q$select pg_temp.run_as('f7000001-0000-4000-8000-000000000001'::uuid,
-    $i$update public.quote_items set description = 'Line 1 updated' where id = '0e700001-0000-4000-8000-000000000001'::uuid;$i$
+    $i$update public.quote_items set line_total_amount = 110 where id = '0e700001-0000-4000-8000-000000000001'::uuid;$i$
   );$q$,
   'W31: owner updates quote_item'
 );
@@ -876,7 +876,7 @@ select throws_matching(
 
 select lives_ok(
   $q$select pg_temp.run_as('f7000001-0000-4000-8000-000000000001'::uuid,
-    $i$update public.tire_hotel set rack = 'R12' where id = 'ac700001-0000-4000-8000-000000000001'::uuid;$i$
+    $i$update public.tire_hotel set status = 'reserved' where id = 'ac700001-0000-4000-8000-000000000001'::uuid;$i$
   );$q$,
   'W67: owner updates tire_hotel'
 );
@@ -1269,8 +1269,8 @@ select is(
     from public.audit_events
     where tenant_id = '70000001-0000-4000-8000-000000000001'::uuid
   ),
-  18::bigint,
-  'W92: audit events include RPC + customer/vehicle + booking/work_order trigger rows'
+  25::bigint,
+  'W92: audit events include RPC + 0010 + 0011 + 0012 trigger flow rows'
 );
 
 select lives_ok(
@@ -1295,7 +1295,7 @@ select lives_ok(
 
 select is(
   (select count(*)::bigint from public.audit_events where tenant_id = '70000001-0000-4000-8000-000000000001'::uuid),
-  18::bigint,
+  25::bigint,
   'W94b: direct client DELETE on audit_events is effectively denied'
 );
 
@@ -1351,6 +1351,42 @@ select is(
   (select count(*)::bigint from public.audit_events where action = 'work_order.updated'),
   1::bigint,
   'W95i: work_order UPDATE flow produces work_order.updated audit'
+);
+
+select is(
+  (select count(*)::bigint from public.audit_events where action = 'quote.created'),
+  1::bigint,
+  'W95j: quote INSERT flow produces quote.created audit'
+);
+
+select is(
+  (select count(*)::bigint from public.audit_events where action = 'quote.updated'),
+  1::bigint,
+  'W95k: quote UPDATE flow produces quote.updated audit'
+);
+
+select is(
+  (select count(*)::bigint from public.audit_events where action = 'quote_item.created'),
+  1::bigint,
+  'W95l: quote_item INSERT flow produces quote_item.created audit'
+);
+
+select is(
+  (select count(*)::bigint from public.audit_events where action = 'quote_item.updated'),
+  1::bigint,
+  'W95m: quote_item UPDATE flow produces quote_item.updated audit'
+);
+
+select is(
+  (select count(*)::bigint from public.audit_events where action = 'tire_hotel.created'),
+  2::bigint,
+  'W95n: tire_hotel INSERT flows produce tire_hotel.created audit'
+);
+
+select is(
+  (select count(*)::bigint from public.audit_events where action = 'tire_hotel.updated'),
+  1::bigint,
+  'W95o: tire_hotel UPDATE flow produces tire_hotel.updated audit'
 );
 
 select is(
@@ -1468,26 +1504,66 @@ select is(
 );
 
 select is(
+  (
+    select count(*)::bigint
+    from public.audit_events
+    where action in ('quote.updated', 'quote_item.updated', 'tire_hotel.updated')
+      and metadata ? 'changed_fields'
+  ),
+  3::bigint,
+  'W98g: quote/quote_item/tire_hotel UPDATE audit uses changed_fields metadata'
+);
+
+select is(
+  (
+    select count(*)::bigint
+    from public.audit_events
+    where action in ('quote.created', 'quote_item.created', 'tire_hotel.created')
+      and metadata = '{}'::jsonb
+  ),
+  4::bigint,
+  'W98h: quote/quote_item/tire_hotel INSERT audit metadata is empty object'
+);
+
+select is(
+  (
+    select count(*)::bigint
+    from public.audit_events
+    where action in ('quote.updated', 'quote_item.updated', 'tire_hotel.updated')
+      and (
+        metadata ? 'old_row'
+        or metadata ? 'new_row'
+        or metadata::text ilike '%description%'
+        or metadata::text ilike '%notes%'
+        or metadata::text ilike '%tire_brand_model%'
+        or metadata::text ilike '%tire_dimension%'
+      )
+  ),
+  0::bigint,
+  'W98i: quote/quote_item/tire_hotel metadata excludes snapshots and free-text payload'
+);
+
+select is(
   (select count(*)::bigint from public.audit_events where actor_user_id = 'f7000001-0000-4000-8000-000000000001'::uuid),
-  10::bigint,
+  13::bigint,
   'W99: owner actor is captured in audit events'
 );
 
 select is(
   (select count(*)::bigint from public.audit_events where actor_user_id = 'f7000002-0000-4000-8000-000000000001'::uuid),
-  2::bigint,
+  3::bigint,
   'W100: admin actor is captured in audit events'
 );
 
 select is(
   (select count(*)::bigint from public.audit_events where actor_user_id = 'f7000003-0000-4000-8000-000000000001'::uuid),
-  5::bigint,
+  7::bigint,
   'W101: receptionist actor captured for allowed reg RPC'
 );
 
 select is(
   (select count(*)::bigint from public.audit_events where actor_user_id = 'f7000004-0000-4000-8000-000000000001'::uuid),
-  1::bigint,
+  2::bigint,
   'W101a: mechanic actor captured for allowed work_order INSERT'
 );
 
@@ -1539,7 +1615,7 @@ select is(
       $i$select count(*)::bigint from public.audit_events$i$
     )
   ),
-  18::bigint,
+  25::bigint,
   'W105: owner can SELECT tenant A audit events'
 );
 
@@ -1550,7 +1626,7 @@ select is(
       $i$select count(*)::bigint from public.audit_events$i$
     )
   ),
-  18::bigint,
+  25::bigint,
   'W106: admin can SELECT tenant A audit events'
 );
 
@@ -1630,11 +1706,17 @@ select is(
       'booking.created',
       'booking.updated',
       'work_order.created',
-      'work_order.updated'
+      'work_order.updated',
+      'quote.created',
+      'quote.updated',
+      'quote_item.created',
+      'quote_item.updated',
+      'tire_hotel.created',
+      'tire_hotel.updated'
     )
       and ae.resource_id is not null
   ),
-  18::bigint,
+  25::bigint,
   'W114: audited RPC rows include resource ids'
 );
 
@@ -1680,11 +1762,17 @@ select is(
       'booking.created',
       'booking.updated',
       'work_order.created',
-      'work_order.updated'
+      'work_order.updated',
+      'quote.created',
+      'quote.updated',
+      'quote_item.created',
+      'quote_item.updated',
+      'tire_hotel.created',
+      'tire_hotel.updated'
     )
       and ae.created_at is not null
   ),
-  18::bigint,
+  25::bigint,
   'W117: audit rows have created_at timestamps'
 );
 
