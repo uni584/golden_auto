@@ -23,8 +23,16 @@ Detta dokument planerar **forsta sakra read-only integrationen** av Supabase i G
 
 ### Miljovariabler for Fas 1A
 
+Lokal setup:
+
+- Kopiera `backend/.env.example` till `backend/.env` lokalt.
+- `backend/.env` ska aldrig committas.
+- Hamta lokal Supabase anon key med:
+  - `npx supabase status`
+- Riktiga tokens/nycklar/hemligheter far aldrig skrivas i dokumentation eller git.
+
 - `SUPABASE_READONLY_CUSTOMERS_ENABLED=false`
-- `SUPABASE_AUTH_CHECK_ENABLED=false` (dev/staging-only auth smoke-check endpoint)
+- `SUPABASE_AUTH_CHECK_ENABLED=false` (endast dev/staging auth smoke-check endpoint)
 - `SUPABASE_URL=...`
 - `SUPABASE_ANON_KEY=...`
 - `SUPABASE_CUSTOMERS_TIMEOUT_SEC=5` (valfri, default 5 sek)

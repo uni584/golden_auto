@@ -151,8 +151,16 @@ Supabase customers read-only kan ga till kontrollerad live pilot forst nar:
 
 ## 8) Miljovariabler (auth-transition)
 
+Lokal setup:
+
+- Kopiera `backend/.env.example` till `backend/.env` for lokal utveckling.
+- `backend/.env` ar lokal runtime-konfiguration och ska aldrig committas.
+- Hamta lokal Supabase anon key med:
+  - `npx supabase status`
+- Skriv aldrig riktiga tokens/nycklar/hemligheter i dokumentation eller git.
+
 - `SUPABASE_READONLY_CUSTOMERS_ENABLED=false`
-- `SUPABASE_AUTH_CHECK_ENABLED=false` (dev/staging-only smoke-check)
+- `SUPABASE_AUTH_CHECK_ENABLED=false` (endast dev/staging smoke-check)
 - `SUPABASE_URL=...`
 - `SUPABASE_ANON_KEY=...`
 - `SUPABASE_CUSTOMERS_TIMEOUT_SEC=5`
