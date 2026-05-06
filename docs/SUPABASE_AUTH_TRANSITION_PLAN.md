@@ -51,6 +51,23 @@ Stegvis overgang:
 4. Aktivera Supabase customers-read selektivt via feature flag i dev/staging.
 5. Hall MongoDB som fallback tills roll/scope-matris ar passerad.
 
+### Ny dev/staging smoke-verifiering (implementerad)
+
+- Endpoint: `GET /api/dev/supabase-auth-check`
+- Skyddas av env-flagga: `SUPABASE_AUTH_CHECK_ENABLED` (default `false`)
+- Ar endpointen avstangd returneras `404` (inte publik i normal drift)
+- Nar aktiv:
+  - kraver `Authorization: Bearer <token>`
+  - anropar Supabase Auth user endpoint med:
+    - `apikey: SUPABASE_ANON_KEY`
+    - `Authorization: Bearer <incoming user token>`
+  - verifierar om token ar anvandbar for Supabase user-context
+- Returnerar endast minimal, saker diagnostik:
+  - `authenticated`
+  - `user_id`
+  - `customers_read_token_usable`
+- Returnerar aldrig token/claims-dump.
+
 ## 4) Dev/staging-verifiering (syntetiska anvandare)
 
 Verifiera minst dessa identiteter:
@@ -74,7 +91,7 @@ Kontroller:
 
 ## 5) Rekommenderat nasta smala kodsteg
 
-Rekommenderat nasta steg: **backend smoke endpoint for Supabase JWT-verifiering i dev/staging**.
+Rekommenderat nasta steg: **dev/staging minimal token-forwarding fran klient till backend** for att mata `Authorization` med verklig Supabase access token.
 
 Mal:
 
@@ -101,3 +118,11 @@ Supabase customers read-only kan ga till kontrollerad live pilot forst nar:
 - RLS-scope ar verifierat i staging/dev for roll- och tenant/workshop-matrisen.
 - Fallback-beteende ar testat och forutsagbart.
 - Sakerhetskrav ovan ar uppfyllda.
+
+## 8) Miljovariabler (auth-transition)
+
+- `SUPABASE_READONLY_CUSTOMERS_ENABLED=false`
+- `SUPABASE_AUTH_CHECK_ENABLED=false` (dev/staging-only smoke-check)
+- `SUPABASE_URL=...`
+- `SUPABASE_ANON_KEY=...`
+- `SUPABASE_CUSTOMERS_TIMEOUT_SEC=5`

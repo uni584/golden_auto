@@ -47,6 +47,7 @@ db = client[DB_NAME]
 
 # ---------- Supabase read-only (customers, phase 1A) ----------
 SUPABASE_READONLY_CUSTOMERS_ENABLED = env_bool("SUPABASE_READONLY_CUSTOMERS_ENABLED", False)
+SUPABASE_AUTH_CHECK_ENABLED = env_bool("SUPABASE_AUTH_CHECK_ENABLED", False)
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "").strip()
 SUPABASE_ANON_KEY = os.environ.get("SUPABASE_ANON_KEY", "").strip()
 SUPABASE_CUSTOMERS_TIMEOUT_SEC = float(os.environ.get("SUPABASE_CUSTOMERS_TIMEOUT_SEC", "5"))
@@ -148,6 +149,42 @@ async def fetch_customers_from_supabase(q: Optional[str], authorization_header: 
 
     logger.info("Customers served from Supabase read-only path: %s", len(mapped))
     return mapped
+
+
+async def verify_supabase_user_token(user_access_token: str) -> Optional[str]:
+    if not SUPABASE_URL or not SUPABASE_ANON_KEY:
+        return None
+
+    headers = {
+        "apikey": SUPABASE_ANON_KEY,
+        "Authorization": f"Bearer {user_access_token}",
+        "Accept": "application/json",
+    }
+    url = f"{SUPABASE_URL.rstrip('/')}/auth/v1/user"
+
+    try:
+        async with httpx.AsyncClient(timeout=SUPABASE_CUSTOMERS_TIMEOUT_SEC) as client_http:
+            resp = await client_http.get(url, headers=headers)
+    except Exception:
+        logger.exception("Supabase auth smoke check request failed")
+        return None
+
+    if resp.status_code != 200:
+        return None
+
+    try:
+        payload = resp.json()
+    except Exception:
+        logger.exception("Supabase auth smoke check returned invalid JSON")
+        return None
+
+    if not isinstance(payload, dict):
+        return None
+
+    user_id = payload.get("id")
+    if not isinstance(user_id, str) or not user_id.strip():
+        return None
+    return user_id
 
 # ---------- JWT / Auth helpers ----------
 JWT_ALGO = "HS256"
@@ -443,6 +480,33 @@ async def customers_list(q: Optional[str] = None, request: Request = None, user:
             {"email": {"$regex": q, "$options": "i"}},
         ]}
     return await db.customers.find(filt, {"_id": 0}).sort("name", 1).to_list(500)
+
+
+@api.get("/dev/supabase-auth-check")
+async def supabase_auth_check(request: Request):
+    if not SUPABASE_AUTH_CHECK_ENABLED:
+        raise HTTPException(status_code=404, detail="Not found")
+
+    if not SUPABASE_URL or not SUPABASE_ANON_KEY:
+        raise HTTPException(status_code=503, detail="Supabase auth check ej konfigurerad")
+
+    auth_header = request.headers.get("Authorization")
+    if not auth_header:
+        raise HTTPException(status_code=401, detail="Ej autentiserad")
+
+    user_access_token = extract_bearer_token(auth_header)
+    if not user_access_token:
+        raise HTTPException(status_code=400, detail="Ogiltigt Authorization-format")
+
+    user_id = await verify_supabase_user_token(user_access_token)
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Ogiltig Supabase access token")
+
+    return {
+        "authenticated": True,
+        "user_id": user_id,
+        "customers_read_token_usable": True,
+    }
 
 
 @api.post("/customers")

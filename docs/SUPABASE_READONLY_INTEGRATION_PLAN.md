@@ -24,9 +24,18 @@ Detta dokument planerar **forsta sakra read-only integrationen** av Supabase i G
 ### Miljovariabler for Fas 1A
 
 - `SUPABASE_READONLY_CUSTOMERS_ENABLED=false`
+- `SUPABASE_AUTH_CHECK_ENABLED=false` (dev/staging-only auth smoke-check endpoint)
 - `SUPABASE_URL=...`
 - `SUPABASE_ANON_KEY=...`
 - `SUPABASE_CUSTOMERS_TIMEOUT_SEC=5` (valfri, default 5 sek)
+
+### Dev/staging smoke endpoint (auth-verifiering)
+
+- Endpoint: `GET /api/dev/supabase-auth-check`
+- Aktiv endast nar `SUPABASE_AUTH_CHECK_ENABLED=true`
+- Syfte: verifiera att inkommande Bearer-token fungerar mot Supabase user-context innan full auth-migration
+- Returnerar endast minimal diagnostik (`authenticated`, `user_id`, `customers_read_token_usable`)
+- Ersatter inte faktisk auth-migration; den validerar endast tokenkedjan i dev/staging
 
 ## Auth/RLS-gap for nuvarande customers-read
 

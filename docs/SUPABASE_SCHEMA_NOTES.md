@@ -271,6 +271,7 @@ Nasta steg: kor pgTAP-regression (`npx supabase test db`) enligt `docs/RLS_VERIF
 
 - RLS-modellen i Supabase forutsatter riktig user-context (`auth.uid()`), kopplad till `tenant_members` och `workshop_members`.
 - Backend har nu forberedelse for passthrough av inkommande Bearer user-token till Supabase customers-read.
+- Backend har dessutom en dev/staging-only smoke-endpoint (`/api/dev/supabase-auth-check`) bakom `SUPABASE_AUTH_CHECK_ENABLED` for att verifiera tokenkedjan utan writes.
 - `SUPABASE_ANON_KEY` anvands som `apikey`, men inte som user `Authorization`.
 - Pathen ar fortfarande **foundation/steg 1** tills frontend/auth levererar verklig Supabase user token i request och detta ar verifierat i staging/dev.
 - Ingen service-role bypass far anvandas for vanlig domandata-read.
