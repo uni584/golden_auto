@@ -1,7 +1,7 @@
--- RLS write policy tests for migrations 0005–0008 (synthetic data only)
+-- RLS write policy tests for migrations 0005–0009 (synthetic data only)
 --
 -- Assumptions:
---   * Runs after migrations 0001–0008.
+--   * Runs after migrations 0001–0009.
 --   * Seed INSERTs run as session superuser (RLS bypass). DML tests use SET LOCAL ROLE authenticated.
 --   * Receptionist write in 0005 requires BOTH:
 --       - tenant_members.role = 'receptionist' AND membership_status = 'active'
@@ -34,6 +34,32 @@ begin
   set local role authenticated;
   execute p_sql;
   reset role;
+exception
+  when others then
+    begin
+      reset role;
+    exception
+      when others then null;
+    end;
+    raise;
+end;
+$fn$;
+
+create or replace function pg_temp.run_as_count(p_uid uuid, p_sql text)
+returns bigint
+language plpgsql
+security invoker
+set search_path = public, pg_temp
+as $fn$
+declare
+  v_count bigint;
+begin
+  perform set_config('request.jwt.claim.sub', p_uid::text, true);
+  perform set_config('request.jwt.claim.role', 'authenticated', true);
+  set local role authenticated;
+  execute p_sql into v_count;
+  reset role;
+  return coalesce(v_count, 0);
 exception
   when others then
     begin
@@ -174,7 +200,7 @@ values (
 -- ---------------------------------------------------------------------------
 -- pgTAP plan: lives_ok / throws_matching / is (32 SELECT-svit ar separat fil)
 -- ---------------------------------------------------------------------------
-select plan(93);
+select plan(122);
 
 -- profiles: self update OK
 select lives_ok(
@@ -1219,6 +1245,286 @@ select is(
   'W90: receipt created_by set from auth.uid()'
 );
 
+-- audit_events (0009): no direct client write
+select throws_matching(
+  $q$select pg_temp.run_as('f7000001-0000-4000-8000-000000000001'::uuid,
+    $i$insert into public.audit_events (tenant_id, workshop_id, actor_user_id, action, resource_type, resource_id, metadata)
+      values (
+        '70000001-0000-4000-8000-000000000001'::uuid,
+        '70100001-0000-4000-8000-000000000001'::uuid,
+        'f7000001-0000-4000-8000-000000000001'::uuid,
+        'manual.bad',
+        'vehicle',
+        'd7000001-0000-4000-8000-000000000001'::uuid,
+        '{}'::jsonb
+      );$i$
+  );$q$,
+  'row-level security',
+  'W91: direct client INSERT to audit_events denied'
+);
+
+select is(
+  (select count(*)::bigint from public.audit_events where tenant_id = '70000001-0000-4000-8000-000000000001'::uuid),
+  4::bigint,
+  'W92: audit events created by audited RPC flows (W47, W48, W71, W72)'
+);
+
+select lives_ok(
+  $q$select pg_temp.run_as('f7000001-0000-4000-8000-000000000001'::uuid,
+    $i$update public.audit_events set action = 'tamper' where tenant_id = '70000001-0000-4000-8000-000000000001'::uuid;$i$
+  );$q$,
+  'W93a: direct client UPDATE attempt on audit_events does not throw'
+);
+
+select is(
+  (select count(*)::bigint from public.audit_events where action = 'tamper'),
+  0::bigint,
+  'W93b: direct client UPDATE on audit_events is effectively denied'
+);
+
+select lives_ok(
+  $q$select pg_temp.run_as('f7000001-0000-4000-8000-000000000001'::uuid,
+    $i$delete from public.audit_events where tenant_id = '70000001-0000-4000-8000-000000000001'::uuid;$i$
+  );$q$,
+  'W94a: direct client DELETE attempt on audit_events does not throw'
+);
+
+select is(
+  (select count(*)::bigint from public.audit_events where tenant_id = '70000001-0000-4000-8000-000000000001'::uuid),
+  4::bigint,
+  'W94b: direct client DELETE on audit_events is effectively denied'
+);
+
+select is(
+  (select count(*)::bigint from public.audit_events where action = 'vehicle.registration_updated'),
+  2::bigint,
+  'W95: vehicle registration RPC writes audit events'
+);
+
+select is(
+  (select count(*)::bigint from public.audit_events where action = 'receipt.created'),
+  2::bigint,
+  'W96: create_receipt RPC writes audit events'
+);
+
+select is(
+  (
+    select count(*)::bigint
+    from public.audit_events
+    where action = 'vehicle.registration_updated'
+      and metadata ? 'changed_fields'
+      and not (metadata ?| array['reg_number_ciphertext','reg_number_hash','reg_number_last4'])
+  ),
+  2::bigint,
+  'W97: reg audit metadata excludes sensitive registration keys'
+);
+
+select is(
+  (
+    select count(*)::bigint
+    from public.audit_events
+    where action = 'receipt.created'
+      and metadata ? 'payment_status'
+      and metadata ? 'currency'
+      and not (metadata ?| array['full_name','email','reg_number'])
+  ),
+  2::bigint,
+  'W98: receipt audit metadata remains minimal'
+);
+
+select is(
+  (select count(*)::bigint from public.audit_events where actor_user_id = 'f7000001-0000-4000-8000-000000000001'::uuid),
+  2::bigint,
+  'W99: owner actor is captured in audit events'
+);
+
+select is(
+  (select count(*)::bigint from public.audit_events where actor_user_id = 'f7000002-0000-4000-8000-000000000001'::uuid),
+  1::bigint,
+  'W100: admin actor is captured in audit events'
+);
+
+select is(
+  (select count(*)::bigint from public.audit_events where actor_user_id = 'f7000003-0000-4000-8000-000000000001'::uuid),
+  1::bigint,
+  'W101: receptionist actor captured for allowed reg RPC'
+);
+
+select is(
+  (
+    select count(*)::bigint
+    from public.audit_events ae
+    where ae.tenant_id = '70000001-0000-4000-8000-000000000001'::uuid
+      and ae.resource_type = 'vehicle'
+      and ae.resource_id = 'd7000a01-0000-4000-8000-000000000001'::uuid
+      and ae.workshop_id = '70100001-0000-4000-8000-000000000001'::uuid
+  ),
+  1::bigint,
+  'W102: vehicle audit row contains tenant/workshop/resource context'
+);
+
+select is(
+  (
+    select count(*)::bigint
+    from public.audit_events ae
+    where ae.tenant_id = '70000001-0000-4000-8000-000000000001'::uuid
+      and ae.resource_type = 'receipt'
+      and ae.correlation_id is null
+  ),
+  2::bigint,
+  'W103: receipt audit rows created without backend correlation id in v1'
+);
+
+select is(
+  (
+    select count(*)::bigint
+    from public.audit_events ae
+    where ae.action in ('vehicle.registration_updated', 'receipt.created')
+      and (
+        ae.metadata::text ilike '%enc-rpc-owner%'
+        or ae.metadata::text ilike '%enc-rpc-rec%'
+        or ae.metadata::text ilike '%rp01%'
+        or ae.metadata::text ilike '%rp02%'
+      )
+  ),
+  0::bigint,
+  'W104: audit metadata does not include raw reg payload values'
+);
+
+select is(
+  (
+    select pg_temp.run_as_count(
+      'f7000001-0000-4000-8000-000000000001'::uuid,
+      $i$select count(*)::bigint from public.audit_events$i$
+    )
+  ),
+  4::bigint,
+  'W105: owner can SELECT tenant A audit events'
+);
+
+select is(
+  (
+    select pg_temp.run_as_count(
+      'f7000002-0000-4000-8000-000000000001'::uuid,
+      $i$select count(*)::bigint from public.audit_events$i$
+    )
+  ),
+  4::bigint,
+  'W106: admin can SELECT tenant A audit events'
+);
+
+select is(
+  (
+    select pg_temp.run_as_count(
+      'f7000003-0000-4000-8000-000000000001'::uuid,
+      $i$select count(*)::bigint from public.audit_events$i$
+    )
+  ),
+  0::bigint,
+  'W107: receptionist cannot SELECT audit events in v1'
+);
+
+select is(
+  (
+    select pg_temp.run_as_count(
+      'f7000004-0000-4000-8000-000000000001'::uuid,
+      $i$select count(*)::bigint from public.audit_events$i$
+    )
+  ),
+  0::bigint,
+  'W108: mechanic cannot SELECT audit events in v1'
+);
+
+select is(
+  (
+    select pg_temp.run_as_count(
+      'f7000005-0000-4000-8000-000000000001'::uuid,
+      $i$select count(*)::bigint from public.audit_events$i$
+    )
+  ),
+  0::bigint,
+  'W109: viewer cannot SELECT audit events in v1'
+);
+
+select is(
+  (
+    select pg_temp.run_as_count(
+      'f70000b1-0000-4000-8000-000000000001'::uuid,
+      $i$select count(*)::bigint from public.audit_events$i$
+    )
+  ),
+  0::bigint,
+  'W110: tenant B owner cannot SELECT tenant A audit rows'
+);
+
+select is(
+  (select count(*)::bigint from public.audit_events where tenant_id = '70000002-0000-4000-8000-000000000002'::uuid),
+  0::bigint,
+  'W111: no cross-tenant audit rows from tested RPC flows'
+);
+
+select is(
+  (select count(*)::bigint from public.audit_events where action = 'manual.bad'),
+  0::bigint,
+  'W112: no manual audit tampering row was inserted'
+);
+
+select is(
+  (select count(*)::bigint from public.audit_events where metadata ? 'token' or metadata ? 'password'),
+  0::bigint,
+  'W113: audit metadata does not contain secret keys'
+);
+
+select is(
+  (
+    select count(*)::bigint
+    from public.audit_events ae
+    where ae.action in ('vehicle.registration_updated', 'receipt.created')
+      and ae.resource_id is not null
+  ),
+  4::bigint,
+  'W114: audited RPC rows include resource ids'
+);
+
+select is(
+  (
+    select count(*)::bigint
+    from public.audit_events ae
+    where ae.action = 'receipt.created'
+      and ae.actor_user_id in (
+        'f7000001-0000-4000-8000-000000000001'::uuid,
+        'f7000002-0000-4000-8000-000000000001'::uuid
+      )
+  ),
+  2::bigint,
+  'W115: only owner/admin produce receipt.created audit in v1'
+);
+
+select is(
+  (
+    select count(*)::bigint
+    from public.audit_events ae
+    join public.tenant_members tm
+      on tm.tenant_id = ae.tenant_id
+     and tm.user_id = ae.actor_user_id
+    where ae.action = 'vehicle.registration_updated'
+      and tm.role = 'receptionist'
+  ),
+  1::bigint,
+  'W116: receptionist appears only on allowed registration update audit'
+);
+
+select is(
+  (
+    select count(*)::bigint
+    from public.audit_events ae
+    where ae.action in ('vehicle.registration_updated', 'receipt.created')
+      and ae.created_at is not null
+  ),
+  4::bigint,
+  'W117: audit rows have created_at timestamps'
+);
+
 -- receptionist vs workshop_members role: receptionist tenant role + workshop_members required (documented in header)
 select is(
   (
@@ -1231,7 +1537,7 @@ select is(
       and wm.workshop_id = '70100001-0000-4000-8000-000000000001'::uuid
   ),
   1::bigint,
-  'W70: receptionist has both tenant_members and workshop_members for A1'
+  'W118: receptionist has both tenant_members and workshop_members for A1'
 );
 
 select * from finish();

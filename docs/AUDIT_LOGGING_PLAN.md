@@ -1,16 +1,16 @@
 # Audit logging — plan för foundation (pre-implementation)
 
-Detta dokument är **besluts- och planunderlag** för hur Golden Auto ska införa **append-only audit** för känsliga och affärskritiska händelser. **Ingen implementation** ingår här; migrationer **`0009+`** ska följa denna plan.
+Detta dokument är **besluts- och planunderlag** för Golden Autos **append-only audit**. Foundation är nu implementerad i **`0009_audit_events_foundation.sql`**; dokumentet beskriver både vad som är klart och vad som återstår i `0010+`.
 
 **Relaterat:** `docs/RLS_WRITE_POLICY_PLAN.md`, `docs/RLS_POLICY_PLAN.md`, `docs/SUPABASE_SCHEMA_NOTES.md`, `docs/RECEIPTS_AND_REGISTRATION_SECURITY_PLAN.md` (§3 audit).
 
 ---
 
-## 1. Rekommenderad tabell: `public.audit_events`
+## 1. Tabell: `public.audit_events`
 
 **Namn:** `audit_events` (tydligt append-only; undvik generiska `logs` som krockar med annan telemetri).
 
-**Föreslagen kärnstruktur** (exakt DDL bestäms i `0009`):
+**Kärnstruktur i `0009`:**
 
 | Kolumn | Typ | Kommentar |
 |--------|-----|-----------|
@@ -33,13 +33,13 @@ Detta dokument är **besluts- och planunderlag** för hur Golden Auto ska inför
 
 ## 2. Säkerhetsmodell
 
-### 2.1 Klient får inte skriva audit
+### 2.1 Klient får inte skriva audit (implementerat)
 
 - **Inga** `INSERT`/`UPDATE`/`DELETE`-policies för `authenticated` på `audit_events`.
 - **Ingen** generös `GRANT INSERT` till `authenticated` på tabellen; skrivning sker via **`SECURITY DEFINER`**-funktion som ägs av en roll som bypassar RLS eller har explicit `INSERT`-rätt, med **`search_path`** låst till `public` (eller `public, pg_temp`).
-- Klienten ska **inte** kunna anropa en publik “skriv vad som helst”-RPC: intern hjälpfunktion **`append_audit_event(...)`** (eller liknande) anropas bara från andra **definer**-funktioner/triggers som redan validerat kontext.
+- Klienten kan **inte** anropa audit-skrivning direkt: intern hjälpfunktion **`append_audit_event(...)`** har `REVOKE` från `PUBLIC`/`anon`/`authenticated` och anropas endast från godkända definer-RPC:er.
 
-### 2.2 Läsning (SELECT)
+### 2.2 Läsning (SELECT, implementerat i v1)
 
 - **RLS aktiverad** på `audit_events`.
 - **Första versionen:** endast **`owner`** och **`admin`** med aktivt tenant-medlemskap får `SELECT` inom **egen** `tenant_id` (samma mönster som strikta policies: `current_user_is_active_tenant_member(tenant_id)` + `current_user_has_tenant_role(tenant_id, array['owner','admin'])`).
@@ -55,14 +55,14 @@ Detta dokument är **besluts- och planunderlag** för hur Golden Auto ska inför
 
 ## 3. Händelser att logga
 
-### 3.1 Hög prioritet (bör täckas tidigt i implementation)
+### 3.1 Först i implementation (klart i `0009`)
 
 | Område | `action` (förslag) | `resource_type` | Kommentar |
 |--------|-------------------|-----------------|-----------|
-| Registreringsfält | `vehicle.registration_updated` | `vehicle` | Endast efter **`update_vehicle_registration_fields`**; ingen klartext/hash i metadata (se §4). |
-| Kvitto | `receipt.created` | `receipt` | Efter **`create_receipt`**; metadata: t.ex. `receipt_number` (affärsnyckel), belopp som redan finns på raden — **ej** kortnummer/hemligheter. |
-| Kund | `customer.created` / `customer.updated` | `customer` | Trigger-baserad eller samlad i RPC senare; v1 kan börja med triggers på befintliga write-sökvägar. |
-| Fordon (övrigt) | `vehicle.created` / `vehicle.updated` | `vehicle` | Uppdatering av **icke-reg** fält via normal RLS; reg-ändring separat action ovan. |
+| Registreringsfält | `vehicle.registration_updated` | `vehicle` | Efter **`update_vehicle_registration_fields`**; metadata innehåller endast `changed_fields`. |
+| Kvitto | `receipt.created` | `receipt` | Efter **`create_receipt`**; metadata innehåller endast `payment_status` och `currency`. |
+| Kund | `customer.created` / `customer.updated` | `customer` | **Återstår** i senare migration(er). |
+| Fordon (övrigt) | `vehicle.created` / `vehicle.updated` | `vehicle` | **Återstår** i senare migration(er). |
 
 ### 3.2 Medel prioritet (kort efter v1)
 
@@ -91,17 +91,17 @@ Detta dokument är **besluts- och planunderlag** för hur Golden Auto ska inför
 
 ---
 
-## 5. Rekommenderad migration `0009` (audit foundation)
+## 5. Migration `0009` (genomfört)
 
-### 5.1 Vad `0009` bör göra
+### 5.1 Vad `0009` gör
 
 1. **Skapa** `audit_events` enligt §1 (DDL + index + kommentarer).
-2. **Skapa** intern **`append_audit_event(...)`** (eller `append_audit_event_internal`): `SECURITY DEFINER`, fast `search_path`, validerar att anrop sker i tillåten kontext (t.ex. kräver `auth.uid()` när händelsen är användar-driven), **ingen** exponering mot `anon`/`PUBLIC` utöver vad som krävs — helst **endast** `EXECUTE` för `authenticated` **avstår** om funktionen endast anropas från andra definer-funktioner i samma migration; praktiskt: **REVOKE ALL FROM PUBLIC**; **GRANT EXECUTE** endast om nödvändigt för trigger-signaturen (triggers anropar funktion i definer-kontext — ofta räcker det att **bara** `postgres`/ägarrollen kör insert via definer kedja).
+2. **Skapar** intern **`append_audit_event(...)`**: `SECURITY DEFINER`, fast `search_path`, validerar kontext och blockerar känsliga metadata-nycklar; `REVOKE ALL` från `PUBLIC`/`anon`/`authenticated`.
 3. **RLS + policies:** `SELECT` enligt §2.2; **inga** klient-`INSERT`/`UPDATE`/`DELETE`-policies.
 4. **Koppla skrivning** i första vågen till befintliga **RPC:er**:
    - **`update_vehicle_registration_fields`** — ett append efter lyckad uppdatering.
    - **`create_receipt`** — ett append efter lyckad insert.
-5. **Triggers** på `customers`, `vehicles` (icke-reg), `bookings`, `quotes`, `quote_items`, `work_orders`, `tire_hotel`: **vänta** till efter RPC-vågen är verifierad, för att undvika dubbelloggning och svår felsökning (särskilt när samma transaktion gör flera ändringar). Alternativ: en trigger med **debounce** per transaktion är överkurs i v1 — börja med **RPC + sedan en tabell i taget** om triggers väljs.
+5. **Lämnar triggers** på `customers`, `vehicles` (icke-reg), `bookings`, `quotes`, `quote_items`, `work_orders`, `tire_hotel` till senare för att undvika dubbelloggning i foundation.
 
 ### 5.2 Vad som medvetet kan vänta
 
@@ -110,15 +110,16 @@ Detta dokument är **besluts- och planunderlag** för hur Golden Auto ska inför
 - **DELETE**-spår (ni har inga klient-`DELETE`-policies på affärstabeller i MVP — fokusera på INSERT/UPDATE).
 - **Export** till SIEM / immutabel object storage.
 
-### 5.3 Tester (när `0009` implementeras)
+### 5.3 Tester (genomfört i write-sviten)
 
 Ny eller utökad **pgTAP**-fil, t.ex. `audit_events.test.sql` eller utökning av write-sviten:
 
-- **`authenticated`:** `INSERT` direkt till `audit_events` → **nekad** (RLS/grant).
-- **`owner`/`admin`:** kan `SELECT` egna tenant-rader efter att definer-funktion lagt en rad (via test som anropar en minimal test-RPC eller superuser som simulerar append — enligt er testdisciplin).
-- **`mechanic`/`receptionist`/`viewer`:** **0 rader** eller nekad `SELECT` på audit.
-- **Cross-tenant:** ingen läsning av annan tenants audit.
-- Verifiera att **RPC** som ska logga faktiskt skapar **exakt en** relevant rad (eller dokumenterad volym).
+- `INSERT` direkt till `audit_events` nekas.
+- `UPDATE`/`DELETE` direkt mot `audit_events` ger 0 ändrade rader (ingen write-policy).
+- `owner`/`admin` kan läsa tenantens audit-rader; `mechanic`/`receptionist`/`viewer` får 0 rader.
+- Cross-tenant läsning blockeras.
+- `update_vehicle_registration_fields` och `create_receipt` skapar audit-rader.
+- Metadata verifieras mot förbjudna reg-värden/nycklar i test.
 
 ---
 
@@ -129,6 +130,6 @@ Ny eller utökad **pgTAP**-fil, t.ex. `audit_events.test.sql` eller utökning av
 | Tabell | **`audit_events`** (append-only, §1). |
 | Först att logga | **`vehicle.registration_updated`** (RPC), **`receipt.created`** (RPC), därefter övriga domänobjekt enligt §3. |
 | Klientmanipulation | **Ingen** klient-`INSERT`/`UPDATE`/`DELETE`; skrivning via **definer** + intern append; **RLS** på `SELECT` till **owner/admin** i v1. |
-| Nästa kodsteg | **Ja:** **`0009_audit_events_foundation.sql`** (eller liknande namn) enligt §5 — tabell, RLS för läsning, intern append, koppling till **`update_vehicle_registration_fields`** och **`create_receipt`** först. |
+| Nästa kodsteg | **Ja:** fortsätt i **`0010+`** med bredare audit (customers/bookings/quotes/work_orders/tire_hotel), membership/admin-audit, correlation-id från backend-lager och retention/export-policy. |
 
-*Senast uppdaterad: plan-only; ingen migration i detta steg.*
+*Senast uppdaterad: `0009` implementerad och verifierad i pgTAP.*

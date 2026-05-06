@@ -36,15 +36,15 @@ Detta dokument beskriver antaganden och avgransningar for det forsta schemautkas
   - gora jamforelser via hash
   - hantera dekryptering kontrollerat i applikations- eller DB-lager senare
 
-**Nasta steg (sakerhet, dokumentation):** `docs/RECEIPTS_AND_REGISTRATION_SECURITY_PLAN.md` beskriver strategi for **kvitton** och **regnr**; migration **`0007_registration_number_security_foundation.sql`** inför `update_vehicle_registration_fields` + trigger som blockerar direkt `UPDATE` av `reg_number_*` (ingen full kryptering an). Migration **`0008_receipts_rpc_foundation.sql`** inför `create_receipt` (RPC-first; ingen fri klient-`INSERT`/`UPDATE`/`DELETE` pa tabellen).
+**Nasta steg (sakerhet, dokumentation):** `docs/RECEIPTS_AND_REGISTRATION_SECURITY_PLAN.md` beskriver strategi for **kvitton** och **regnr**; migration **`0007_registration_number_security_foundation.sql`** inför `update_vehicle_registration_fields` + trigger som blockerar direkt `UPDATE` av `reg_number_*` (ingen full kryptering an). Migration **`0008_receipts_rpc_foundation.sql`** inför `create_receipt` (RPC-first; ingen fri klient-`INSERT`/`UPDATE`/`DELETE` pa tabellen). Migration **`0009_audit_events_foundation.sql`** inför `audit_events` + intern append och audit-koppling till de två känsligaste RPC-flödena.
 
 ## Audit-forberedelse
 
 - Alla centrala tabeller har `created_at` och `updated_at`.
 - Trigger-funktion `set_updated_at()` uppdaterar `updated_at` automatiskt vid `UPDATE`.
 - Falt for framtida actorsporning finns som `created_by` och `updated_by` (UUID) pa relevanta tabeller.
-- **Plan for append-only audit:** **`docs/AUDIT_LOGGING_PLAN.md`** (tabell `audit_events`, RLS, ingen klient-skrivning, RPC/trigger-koppling — **ej** migrerat an).
-- Full revisionshistorik per falt och extern actor-resolution skjuts tills **`0009+`** ar beslutat och implementerat.
+- **Append-only audit implementerad i `0009`:** `audit_events`, owner/admin-READ i tenant, ingen klient-write, intern `append_audit_event` med metadata-guardrails.
+- Full revisionshistorik per falt och extern actor-resolution skjuts till senare migrationer (**`0010+`**).
 
 ## Affarsantaganden i utkastet
 
@@ -130,7 +130,7 @@ Kort sammanfattning:
 
 ## Sakerhetsgranskning och verifieringsfas (pre-write)
 
-Ny verifieringsplan: `docs/RLS_VERIFICATION_PLAN.md` (senast dokumenterat: **125/125 PASS** — SELECT **32/32**, WRITE **93/93** efter **`0008`**).
+Ny verifieringsplan: `docs/RLS_VERIFICATION_PLAN.md` (senast dokumenterat: **154/154 PASS** — SELECT **32/32**, WRITE **122/122** efter **`0009`**).
 
 Kort bedomning av 0003:
 
@@ -158,12 +158,12 @@ Migration: `supabase/migrations/0004_rls_select_hardening.sql`
 
 Genomford lokalt med Docker Desktop igang och `npx supabase db reset` (PowerShell, branch `main`):
 
-- Alla migrationer **`0001`–`0008`** applicerades utan SQL-fel som stoppade loppet.
+- Alla migrationer **`0001`–`0009`** applicerades utan SQL-fel som stoppade loppet.
 - Meddelandet `DROP POLICY IF EXISTS ... does not exist, skipping` under `0003` ar forvantat vid forsta korning (idempotent drop).
 - Varningen `no files matched pattern: supabase/seed.sql` betyder att ingen seed-fil finns; den blockerar inte reset. Lagg till syntetisk seed senare om onskat.
 - Ingen riktig kunddata anvandes.
 
-Nasta steg: kor pgTAP-regression (`npx supabase test db`) enligt `docs/RLS_VERIFICATION_PLAN.md` — **125/125** (32 SELECT + 93 WRITE) efter **`0008`**. Ingen service role i frontend.
+Nasta steg: kor pgTAP-regression (`npx supabase test db`) enligt `docs/RLS_VERIFICATION_PLAN.md` — **154/154** (32 SELECT + 122 WRITE) efter **`0009`**. Ingen service role i frontend.
 
 ## Automatiserad SELECT-RLS regression
 
@@ -172,15 +172,15 @@ Nasta steg: kor pgTAP-regression (`npx supabase test db`) enligt `docs/RLS_VERIF
 - Syntetiska `auth.users` och domandata endast; ingen riktig kunddata.
 - Senast kord: **32/32 PASS** (lokal Supabase via `npx`). Se aven `docs/RLS_VERIFICATION_PLAN.md` for tackning mot manuella T1–T17.
 
-## Automatiserad WRITE-RLS regression (0005 + 0006 + 0007 + 0008)
+## Automatiserad WRITE-RLS regression (0005 + 0006 + 0007 + 0008 + 0009)
 
-- Fil: `supabase/tests/database/rls_write_policies.test.sql` (pgTAP, **93** test).
+- Fil: `supabase/tests/database/rls_write_policies.test.sql` (pgTAP, **122** test).
 - Kors av samma `npx supabase test db` som SELECT-sviten efter `db reset`.
-- Senast kord: **93/93 PASS** tillsammans med SELECT (**125/125** totalt, 32+93). **`0007`:** **W46–W52** (reg-falt). **`0008`:** **W69**, **W71–W90** (`create_receipt`, nekad direkt skrivning till `receipts`). Detaljer: `docs/RLS_WRITE_POLICY_PLAN.md`, `docs/RLS_VERIFICATION_PLAN.md`.
+- Senast kord: **122/122 PASS** tillsammans med SELECT (**154/154** totalt, 32+122). **`0007`:** **W46–W52** (reg-falt). **`0008`:** **W69**, **W71–W90** (`create_receipt`). **`0009`:** **W91–W118** (`audit_events` + audit via RPC). Detaljer: `docs/RLS_WRITE_POLICY_PLAN.md`, `docs/RLS_VERIFICATION_PLAN.md`, `docs/AUDIT_LOGGING_PLAN.md`.
 
 ## Write-policies
 
-- Detaljplan: **`docs/RLS_WRITE_POLICY_PLAN.md`** (inkl. `0005`–`0008`).
+- Detaljplan: **`docs/RLS_WRITE_POLICY_PLAN.md`** (inkl. `0005`–`0009`).
 - Receipts + registreringsnummer (nasta steg): **`docs/RECEIPTS_AND_REGISTRATION_SECURITY_PLAN.md`**.
 - Overgripande: **`docs/RLS_POLICY_PLAN.md`**.
 
@@ -208,9 +208,13 @@ Nasta steg: kor pgTAP-regression (`npx supabase test db`) enligt `docs/RLS_VERIF
 - Direkt klient-`INSERT` pa `receipts` forblir **nej** (RLS). **`receipts_deny_client_update` / `receipts_deny_client_delete`:** klient-`UPDATE`/`DELETE` nekas med RAISE.
 - **Ej** void/betalning/refund-RPC, Edge, frontend, full ekonomisk validering.
 
-### Planerad migration `0009` (dokumentation)
+### Migration `0009_audit_events_foundation.sql`
 
-- Se **`docs/AUDIT_LOGGING_PLAN.md`**: `audit_events`, intern append-funktion, `SELECT` for owner/admin, forsta skrivningar fran **`update_vehicle_registration_fields`** och **`create_receipt`**; ovriga tabeller/triggers enligt plan.
+- Skapar `public.audit_events` + index (`tenant_id, created_at`, `resource_type/resource_id`, `actor_user_id`, `action`).
+- RLS: `SELECT` endast owner/admin i tenant; inga klient-write-policies.
+- Intern `append_audit_event(...)` (SECURITY DEFINER, fast `search_path`, `REVOKE` fran `PUBLIC`/`anon`/`authenticated`, metadata-guardrails mot känsliga nycklar).
+- Audit kopplas till `update_vehicle_registration_fields(...)` (`vehicle.registration_updated`) och `create_receipt(...)` (`receipt.created`) med minimal metadata.
+- Återstår: bredare audit (customers/bookings/quotes/work_orders/tire_hotel), membership/admin-händelser, backend correlation-id, retention/export-policy.
 
 ## Syntax och kvalitet
 
