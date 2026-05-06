@@ -128,6 +128,29 @@ Ovriga manuella/kompletterande tester (ej i pgTAP-filen an):
 - Anvand `npx supabase test db` som **lopande regression** efter varje migrations-/testandring (nu: **178/178** efter **0012**).
 - Komplettera manuellt med T17 (anon) om krav finns i er sakerhetsmodell.
 - **Receipts** och **full regnr-produktion:** se `docs/RECEIPTS_AND_REGISTRATION_SECURITY_PLAN.md`.
+- For app-read-only onboarding: se `docs/SUPABASE_READONLY_INTEGRATION_PLAN.md` (customers forst, vehicles sen; inga writes).
+
+## Read-only verifiering for planerad app-integration
+
+Denna punkt kompletterar migrations-/RLS-regressionen med appnara read-only kontroller.
+
+- Scope fas 1:
+  - `customers` read-only forst
+  - `vehicles` read-only i senare steg
+- Testdata:
+  - endast syntetisk data
+  - ingen riktig kunddata
+- Sakerhetskrav i verifiering:
+  - ingen service role i frontend
+  - inga writes mot Supabase
+  - inga `reg_number_*` i listvyer
+  - explicit kolumnlista (ingen `select *`)
+- Scope-kontroller:
+  - owner/admin/receptionist/mechanic/viewer testas mot tenant/workshop-isolering
+  - cross-tenant och cross-workshop ska returnera 0 rader
+- Driftmodell:
+  - MongoDB fortsatter som aktiv kalla tills read-only verifierats i praktiken
+  - Supabase-lasning introduceras bakom feature flag i backend
 
 ## 1) Mal med verifieringsfasen
 

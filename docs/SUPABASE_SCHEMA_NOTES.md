@@ -253,3 +253,15 @@ Nasta steg: kor pgTAP-regression (`npx supabase test db`) enligt `docs/RLS_VERIF
   - audit enligt **`docs/AUDIT_LOGGING_PLAN.md`**
   - tenant-sakerhet i FK/constraints
   - ev. krypteringsnyckelhantering och dekrypteringsstrategi
+
+## Planerad app-integration (read-only, ingen kod andrad an)
+
+- Se **`docs/SUPABASE_READONLY_INTEGRATION_PLAN.md`** for forsta steg i app-integration.
+- Rekommenderad ordning:
+  1) `customers` read-only via backend service layer
+  2) `vehicles` read-only efter verifierad fas 1
+- I integrationsfasen:
+  - inga writes mot Supabase
+  - ingen service role i frontend
+  - MongoDB fortsatter som aktiv kalla tills verifiering ar klar
+  - endast syntetisk data i test
