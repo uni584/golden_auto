@@ -1,6 +1,6 @@
 # Audit logging — plan för foundation (pre-implementation)
 
-Detta dokument är **besluts- och planunderlag** för Golden Autos **append-only audit**. Foundation är implementerad i **`0009_audit_events_foundation.sql`** och första bredare rollout i **`0010_customer_vehicle_audit_triggers.sql`**; dokumentet beskriver vad som är klart och vad som återstår i `0011+`.
+Detta dokument är **besluts- och planunderlag** för Golden Autos **append-only audit**. Foundation är implementerad i **`0009_audit_events_foundation.sql`**, första bredare rollout i **`0010_customer_vehicle_audit_triggers.sql`** och operativ rollout i **`0011_booking_work_order_audit_triggers.sql`**; dokumentet beskriver vad som är klart och vad som återstår i `0012+`.
 
 **Relaterat:** `docs/RLS_WRITE_POLICY_PLAN.md`, `docs/RLS_POLICY_PLAN.md`, `docs/SUPABASE_SCHEMA_NOTES.md`, `docs/RECEIPTS_AND_REGISTRATION_SECURITY_PLAN.md` (§3 audit).
 
@@ -55,7 +55,7 @@ Detta dokument är **besluts- och planunderlag** för Golden Autos **append-only
 
 ## 3. Händelser att logga
 
-### 3.1 Först i implementation (klart i `0009` + `0010`)
+### 3.1 Först i implementation (klart i `0009` + `0010` + `0011`)
 
 | Område | `action` (förslag) | `resource_type` | Kommentar |
 |--------|-------------------|-----------------|-----------|
@@ -63,6 +63,8 @@ Detta dokument är **besluts- och planunderlag** för Golden Autos **append-only
 | Kvitto | `receipt.created` | `receipt` | Efter **`create_receipt`**; metadata innehåller endast `payment_status` och `currency`. |
 | Kund | `customer.created` / `customer.updated` | `customer` | **Implementerat i `0010`** via triggers med minimal metadata. |
 | Fordon (övrigt) | `vehicle.created` / `vehicle.updated` | `vehicle` | **Implementerat i `0010`** via triggers; reg-fält exkluderas. |
+| Bokning | `booking.created` / `booking.updated` | `booking` | **Implementerat i `0011`** via triggers med `{}` för insert och `changed_fields` för update. |
+| Arbetsorder | `work_order.created` / `work_order.updated` | `work_order` | **Implementerat i `0011`** via triggers med `{}` för insert och `changed_fields` för update. |
 
 ### 3.2 Medel prioritet (kort efter v1)
 
@@ -155,20 +157,20 @@ Ny eller utökad **pgTAP**-fil, t.ex. `audit_events.test.sql` eller utökning av
 
 ---
 
-## 6. Rolloutplan `0011+` (operativa flöden)
+## 6. Rolloutplan `0012+` (operativa flöden)
 
 ### 6.1 Full händelsekatalog (operativ audit)
 
 | Händelse | Rek. väg | `action` | `resource_type` | `tenant_id`/`workshop_id` källa | Tillåten metadata | Förbjuden metadata | Risk | Testkrav (min) |
 |---------|----------|----------|-----------------|-------------------------------|-------------------|-------------------|------|----------------|
-| Booking create | Trigger | `booking.created` | `booking` | `NEW.tenant_id`, `NEW.workshop_id` | `{}` eller `status`,`source` | notes/fritext, PII, tokens | Medel | event skapas, owner/admin kan läsa |
-| Booking update | Trigger | `booking.updated` | `booking` | `NEW.tenant_id`, `NEW.workshop_id` | `changed_fields` (+ ev `status`) | full row snapshots, notes-innehåll | Medel | event skapas, `changed_fields` finns |
+| Booking create | Trigger | `booking.created` | `booking` | `NEW.tenant_id`, `NEW.workshop_id` | `{}` eller säkra status/enum | notes/fritext, PII, tokens | Medel | **klart i 0011** |
+| Booking update | Trigger | `booking.updated` | `booking` | `NEW.tenant_id`, `NEW.workshop_id` | `changed_fields` (+ ev `status`) | full row snapshots, notes-innehåll | Medel | **klart i 0011** |
 | Quote create | Trigger | `quote.created` | `quote` | `NEW.tenant_id`, `NEW.workshop_id` | `{}` eller `status`,`currency` | offerttest/fritext, PII | Medel | event skapas, tenant/workshop korrekt |
 | Quote update | Trigger | `quote.updated` | `quote` | `NEW.tenant_id`, `NEW.workshop_id` | `changed_fields` (+ ev `status`) | full snapshots, notes/fritext | Medel | event skapas, cross-tenant read block |
 | Quote item create | Trigger | `quote_item.created` | `quote_item` | `NEW.tenant_id`, `NULL` workshop | `{}` eller `item_type` | `description` payload, snapshots | Medel | event skapas, resource_id korrekt |
 | Quote item update | Trigger | `quote_item.updated` | `quote_item` | `NEW.tenant_id`, `NULL` workshop | `changed_fields` | full snapshots, beskrivningstext | Medel | event skapas, minimal metadata |
-| Work order create | Trigger | `work_order.created` | `work_order` | `NEW.tenant_id`, `NEW.workshop_id` | `{}` eller `status` | interna notes/fritext, PII | Medel/Hög | event skapas, actor/tenant korrekt |
-| Work order update | Trigger | `work_order.updated` | `work_order` | `NEW.tenant_id`, `NEW.workshop_id` | `changed_fields` (+ ev `status`) | notes payload, full snapshots | Medel/Hög | event skapas, metadata utan notes |
+| Work order create | Trigger | `work_order.created` | `work_order` | `NEW.tenant_id`, `NEW.workshop_id` | `{}` eller `status` | interna notes/fritext, PII | Medel/Hög | **klart i 0011** |
+| Work order update | Trigger | `work_order.updated` | `work_order` | `NEW.tenant_id`, `NEW.workshop_id` | `changed_fields` (+ ev `status`) | notes payload, full snapshots | Medel/Hög | **klart i 0011** |
 | Tire hotel create | Trigger | `tire_hotel.created` | `tire_hotel` | `NEW.tenant_id`, `NEW.workshop_id` | `{}` eller `status`,`season` | fritext/noteringar, PII | Låg/Medel | event skapas, role-read korrekt |
 | Tire hotel update | Trigger | `tire_hotel.updated` | `tire_hotel` | `NEW.tenant_id`, `NEW.workshop_id` | `changed_fields` (+ ev `status`) | snapshots, fritext | Låg/Medel | event skapas, metadata minimal |
 
@@ -183,7 +185,7 @@ Ny eller utökad **pgTAP**-fil, t.ex. `audit_events.test.sql` eller utökning av
   - `bookings`, `quotes`, `quote_items`, `work_orders`, `tire_hotel`
 - **Framtida membership/admin-händelser:** helst **RPC/server-side** när säkra skrivflöden finns, inte breda tabelltriggers i första steget.
 
-### 6.3 Metadata-regler för `0010+`
+### 6.3 Metadata-regler för `0011+`
 
 - **Tillåtet (baseline):**
   - `changed_fields` (array av fältnamn, inte värden)
@@ -195,25 +197,7 @@ Ny eller utökad **pgTAP**-fil, t.ex. `audit_events.test.sql` eller utökning av
   - fulla row snapshots (`old_row`, `new_row`, stora JSON-dumpar)
   - onödig PII (namn, e-post, telefon, adress) när `resource_id` redan finns
 
-### 6.4 Rekommenderad migration `0011` (minsta säkra scope)
-
-**Rekommenderad `0011` (liten operativ grupp):**
-- `booking.created`
-- `booking.updated`
-- `work_order.created`
-- `work_order.updated`
-
-**Varför just dessa först:**
-- Hög operativ betydelse (verkstadsflödet).
-- Tydlig tenant/workshop-källa.
-- Begränsad mängd triggers jämfört med att ta alla fem tabellgrupper samtidigt.
-
-**Rekommenderade testfall i `0011`:**
-- tillåten INSERT/UPDATE på `bookings` och `work_orders` skapar rätt audit action.
-- `changed_fields` används på UPDATE; inga fulla snapshots.
-- metadata innehåller inte regnummernycklar, tokens eller notes-payload.
-- owner/admin kan läsa; mechanic/receptionist/viewer kan inte läsa.
-- direct `INSERT/UPDATE/DELETE` mot `audit_events` fortsatt blockerat/ineffektivt.
+### 6.4 Rekommenderad migration `0012+` (nästa steg efter `0011`)
 
 **Ska vänta till `0012+`:**
 - `quote.created`, `quote.updated`
@@ -230,6 +214,6 @@ Ny eller utökad **pgTAP**-fil, t.ex. `audit_events.test.sql` eller utökning av
 | Tabell | **`audit_events`** (append-only, §1). |
 | Först att logga | **`vehicle.registration_updated`** (RPC), **`receipt.created`** (RPC), därefter övriga domänobjekt enligt §3. |
 | Klientmanipulation | **Ingen** klient-`INSERT`/`UPDATE`/`DELETE`; skrivning via **definer** + intern append; **RLS** på `SELECT` till **owner/admin** i v1. |
-| Nästa kodsteg | **Ja:** kör **`0011`** för `booking.*` + `work_order.*`, och dela resterande operativ audit i **`0012+`**. |
+| Nästa kodsteg | **Ja:** kör **`0012`** för `quote.*` + `quote_item.*` och därefter `tire_hotel.*` i `0013+` om ni vill hålla låg risk. |
 
-*Senast uppdaterad: `0010` implementerad och verifierad i pgTAP.*
+*Senast uppdaterad: `0011` implementerad och verifierad i pgTAP.*

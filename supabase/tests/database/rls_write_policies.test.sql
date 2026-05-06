@@ -1,7 +1,7 @@
--- RLS write policy tests for migrations 0005–0010 (synthetic data only)
+-- RLS write policy tests for migrations 0005–0011 (synthetic data only)
 --
 -- Assumptions:
---   * Runs after migrations 0001–0010.
+--   * Runs after migrations 0001–0011.
 --   * Seed INSERTs run as session superuser (RLS bypass). DML tests use SET LOCAL ROLE authenticated.
 --   * Receptionist write in 0005 requires BOTH:
 --       - tenant_members.role = 'receptionist' AND membership_status = 'active'
@@ -200,7 +200,7 @@ values (
 -- ---------------------------------------------------------------------------
 -- pgTAP plan: lives_ok / throws_matching / is (32 SELECT-svit ar separat fil)
 -- ---------------------------------------------------------------------------
-select plan(129);
+select plan(137);
 
 -- profiles: self update OK
 select lives_ok(
@@ -381,7 +381,7 @@ select throws_matching(
 -- bookings: update with workshop access
 select lives_ok(
   $q$select pg_temp.run_as('f7000003-0000-4000-8000-000000000001'::uuid,
-    $i$update public.bookings set notes = 'rec note' where id = 'b7000002-0000-4000-8000-000000000002'::uuid;$i$
+    $i$update public.bookings set status = 'confirmed' where id = 'b7000002-0000-4000-8000-000000000002'::uuid;$i$
   );$q$,
   'W19: receptionist updates booking in A1'
 );
@@ -812,7 +812,7 @@ select throws_matching(
 
 select lives_ok(
   $q$select pg_temp.run_as('f7000001-0000-4000-8000-000000000001'::uuid,
-    $i$update public.work_orders set notes = 'wo note' where id = 'ab700001-0000-4000-8000-000000000001'::uuid;$i$
+    $i$update public.work_orders set status = 'in_progress' where id = 'ab700001-0000-4000-8000-000000000001'::uuid;$i$
   );$q$,
   'W60: owner updates work_order'
 );
@@ -1269,8 +1269,8 @@ select is(
     from public.audit_events
     where tenant_id = '70000001-0000-4000-8000-000000000001'::uuid
   ),
-  11::bigint,
-  'W92: audit events include RPC + customer/vehicle trigger flow rows'
+  18::bigint,
+  'W92: audit events include RPC + customer/vehicle + booking/work_order trigger rows'
 );
 
 select lives_ok(
@@ -1295,7 +1295,7 @@ select lives_ok(
 
 select is(
   (select count(*)::bigint from public.audit_events where tenant_id = '70000001-0000-4000-8000-000000000001'::uuid),
-  11::bigint,
+  18::bigint,
   'W94b: direct client DELETE on audit_events is effectively denied'
 );
 
@@ -1327,6 +1327,30 @@ select is(
   (select count(*)::bigint from public.audit_events where action = 'vehicle.registration_updated'),
   2::bigint,
   'W95e: vehicle registration RPC writes audit events'
+);
+
+select is(
+  (select count(*)::bigint from public.audit_events where action = 'booking.created'),
+  3::bigint,
+  'W95f: booking INSERT flows produce booking.created audit'
+);
+
+select is(
+  (select count(*)::bigint from public.audit_events where action = 'booking.updated'),
+  1::bigint,
+  'W95g: booking UPDATE flow produces booking.updated audit'
+);
+
+select is(
+  (select count(*)::bigint from public.audit_events where action = 'work_order.created'),
+  2::bigint,
+  'W95h: work_order INSERT flows produce work_order.created audit'
+);
+
+select is(
+  (select count(*)::bigint from public.audit_events where action = 'work_order.updated'),
+  1::bigint,
+  'W95i: work_order UPDATE flow produces work_order.updated audit'
 );
 
 select is(
@@ -1406,8 +1430,46 @@ select is(
 );
 
 select is(
+  (
+    select count(*)::bigint
+    from public.audit_events
+    where action in ('booking.updated', 'work_order.updated')
+      and metadata ? 'changed_fields'
+  ),
+  2::bigint,
+  'W98d: booking/work_order UPDATE audit uses changed_fields metadata'
+);
+
+select is(
+  (
+    select count(*)::bigint
+    from public.audit_events
+    where action in ('booking.created', 'work_order.created')
+      and metadata = '{}'::jsonb
+  ),
+  5::bigint,
+  'W98e: booking/work_order INSERT audit metadata is empty object'
+);
+
+select is(
+  (
+    select count(*)::bigint
+    from public.audit_events
+    where action in ('booking.updated', 'work_order.updated')
+      and (
+        metadata ? 'old_row'
+        or metadata ? 'new_row'
+        or metadata::text ilike '%notes%'
+        or metadata::text ilike '%assigned_to_label%'
+      )
+  ),
+  0::bigint,
+  'W98f: booking/work_order metadata excludes snapshots and free-text payload'
+);
+
+select is(
   (select count(*)::bigint from public.audit_events where actor_user_id = 'f7000001-0000-4000-8000-000000000001'::uuid),
-  6::bigint,
+  10::bigint,
   'W99: owner actor is captured in audit events'
 );
 
@@ -1419,8 +1481,14 @@ select is(
 
 select is(
   (select count(*)::bigint from public.audit_events where actor_user_id = 'f7000003-0000-4000-8000-000000000001'::uuid),
-  3::bigint,
+  5::bigint,
   'W101: receptionist actor captured for allowed reg RPC'
+);
+
+select is(
+  (select count(*)::bigint from public.audit_events where actor_user_id = 'f7000004-0000-4000-8000-000000000001'::uuid),
+  1::bigint,
+  'W101a: mechanic actor captured for allowed work_order INSERT'
 );
 
 select is(
@@ -1471,7 +1539,7 @@ select is(
       $i$select count(*)::bigint from public.audit_events$i$
     )
   ),
-  11::bigint,
+  18::bigint,
   'W105: owner can SELECT tenant A audit events'
 );
 
@@ -1482,7 +1550,7 @@ select is(
       $i$select count(*)::bigint from public.audit_events$i$
     )
   ),
-  11::bigint,
+  18::bigint,
   'W106: admin can SELECT tenant A audit events'
 );
 
@@ -1552,10 +1620,21 @@ select is(
   (
     select count(*)::bigint
     from public.audit_events ae
-    where ae.action in ('vehicle.registration_updated', 'receipt.created', 'customer.created', 'customer.updated', 'vehicle.created', 'vehicle.updated')
+    where ae.action in (
+      'vehicle.registration_updated',
+      'receipt.created',
+      'customer.created',
+      'customer.updated',
+      'vehicle.created',
+      'vehicle.updated',
+      'booking.created',
+      'booking.updated',
+      'work_order.created',
+      'work_order.updated'
+    )
       and ae.resource_id is not null
   ),
-  11::bigint,
+  18::bigint,
   'W114: audited RPC rows include resource ids'
 );
 
@@ -1591,10 +1670,21 @@ select is(
   (
     select count(*)::bigint
     from public.audit_events ae
-    where ae.action in ('vehicle.registration_updated', 'receipt.created', 'customer.created', 'customer.updated', 'vehicle.created', 'vehicle.updated')
+    where ae.action in (
+      'vehicle.registration_updated',
+      'receipt.created',
+      'customer.created',
+      'customer.updated',
+      'vehicle.created',
+      'vehicle.updated',
+      'booking.created',
+      'booking.updated',
+      'work_order.created',
+      'work_order.updated'
+    )
       and ae.created_at is not null
   ),
-  11::bigint,
+  18::bigint,
   'W117: audit rows have created_at timestamps'
 );
 
