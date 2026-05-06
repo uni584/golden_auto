@@ -4,11 +4,27 @@ Detta dokument planerar **forsta sakra read-only integrationen** av Supabase i G
 
 ## Scope och principer
 
-- Endast **plan** i detta steg; inga kodandringar i backend/frontend.
+- Fas 1A har nu en **forsta backend-implementation** bakom feature flag.
 - MongoDB fortsatter vara aktiv primary source i appen tills read-only verifierats.
 - Ingen write mot Supabase i integrationsfas 1.
 - Ingen service role i frontend.
 - Endast syntetisk testdata i verifiering.
+
+## Fas 1A status (implementerad, backend-only)
+
+- Implementerad i `backend/server.py` pa endpoint `GET /api/customers`.
+- Feature flag: `SUPABASE_READONLY_CUSTOMERS_ENABLED` (default `false`).
+- Nar flaggan ar `false`: befintlig MongoDB-kodvag anvands oforandrat.
+- Nar flaggan ar `true`: backend forsoker Supabase read-only for customers.
+- Vid saknad Supabase-config eller read-fel: kontrollerad fallback till MongoDB.
+- Inga Supabase writes introducerade.
+
+### Miljovariabler for Fas 1A
+
+- `SUPABASE_READONLY_CUSTOMERS_ENABLED=false`
+- `SUPABASE_URL=...`
+- `SUPABASE_ANON_KEY=...`
+- `SUPABASE_CUSTOMERS_TIMEOUT_SEC=5` (valfri, default 5 sek)
 
 ## 1) Rekommenderad forsta read-only scope
 

@@ -12,6 +12,7 @@ from datetime import datetime, timezone, timedelta
 from typing import Optional, List, Literal
 
 import bcrypt
+import httpx
 import jwt
 from fastapi import FastAPI, APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import StreamingResponse
@@ -31,11 +32,102 @@ logging.basicConfig(
 )
 logger = logging.getLogger("goldenauto")
 
+
+def env_bool(name: str, default: bool = False) -> bool:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
 # ---------- MongoDB ----------
 MONGO_URL = os.environ["MONGO_URL"]
 DB_NAME = os.environ["DB_NAME"]
 client = AsyncIOMotorClient(MONGO_URL)
 db = client[DB_NAME]
+
+# ---------- Supabase read-only (customers, phase 1A) ----------
+SUPABASE_READONLY_CUSTOMERS_ENABLED = env_bool("SUPABASE_READONLY_CUSTOMERS_ENABLED", False)
+SUPABASE_URL = os.environ.get("SUPABASE_URL", "").strip()
+SUPABASE_ANON_KEY = os.environ.get("SUPABASE_ANON_KEY", "").strip()
+SUPABASE_CUSTOMERS_TIMEOUT_SEC = float(os.environ.get("SUPABASE_CUSTOMERS_TIMEOUT_SEC", "5"))
+
+SUPABASE_CUSTOMERS_SELECT = ",".join([
+    "id",
+    "customer_number",
+    "full_name",
+    "email",
+    "phone",
+    "is_active",
+    "created_at",
+    "updated_at",
+])
+
+
+async def fetch_customers_from_supabase(q: Optional[str]) -> Optional[List[dict]]:
+    if not SUPABASE_READONLY_CUSTOMERS_ENABLED:
+        return None
+
+    if not SUPABASE_URL or not SUPABASE_ANON_KEY:
+        logger.warning("Supabase customers read-only enabled but config missing; falling back to MongoDB")
+        return None
+
+    url = f"{SUPABASE_URL.rstrip('/')}/rest/v1/customers"
+    params = {
+        "select": SUPABASE_CUSTOMERS_SELECT,
+        "order": "full_name.asc",
+        "limit": "500",
+    }
+
+    if q:
+        safe_q = q.replace("*", "").replace(",", "").strip()
+        if safe_q:
+            params["or"] = f"(full_name.ilike.*{safe_q}*,phone.ilike.*{safe_q}*,email.ilike.*{safe_q}*)"
+
+    headers = {
+        "apikey": SUPABASE_ANON_KEY,
+        "Authorization": f"Bearer {SUPABASE_ANON_KEY}",
+        "Accept": "application/json",
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=SUPABASE_CUSTOMERS_TIMEOUT_SEC) as client_http:
+            resp = await client_http.get(url, params=params, headers=headers)
+    except Exception:
+        logger.exception("Supabase customers read failed; falling back to MongoDB")
+        return None
+
+    if resp.status_code != 200:
+        logger.warning("Supabase customers read returned non-200 (%s); falling back to MongoDB", resp.status_code)
+        return None
+
+    try:
+        rows = resp.json()
+    except Exception:
+        logger.exception("Supabase customers read returned invalid JSON; falling back to MongoDB")
+        return None
+
+    if not isinstance(rows, list):
+        logger.warning("Supabase customers read returned unexpected payload; falling back to MongoDB")
+        return None
+
+    mapped = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        mapped.append({
+            "id": row.get("id"),
+            "name": row.get("full_name"),
+            "phone": row.get("phone"),
+            "email": row.get("email"),
+            "customer_number": row.get("customer_number"),
+            "is_active": row.get("is_active", True),
+            "created_at": row.get("created_at"),
+            "updated_at": row.get("updated_at"),
+            "notes": None,
+        })
+
+    logger.info("Customers served from Supabase read-only path: %s", len(mapped))
+    return mapped
 
 # ---------- JWT / Auth helpers ----------
 JWT_ALGO = "HS256"
@@ -319,6 +411,10 @@ async def users_delete(uid: str, user: dict = Depends(require_roles("superadmin"
 # ===== CUSTOMERS =====
 @api.get("/customers")
 async def customers_list(q: Optional[str] = None, user: dict = Depends(get_current_user)):
+    supabase_rows = await fetch_customers_from_supabase(q)
+    if supabase_rows is not None:
+        return supabase_rows
+
     filt = {}
     if q:
         filt = {"$or": [
