@@ -10,8 +10,16 @@ Detta dokument beskriver en saker verifieringsfas for RLS SELECT-lagret (`0003` 
 - **Nya write-fall (reg, W46–W52):** W46 direkt reg-`UPDATE` nekad; W47–W48 owner/receptionist via RPC; W49–W50 mechanic/viewer nekad; W51 cross-tenant nekad; W52 hash-konflikt inom tenant.
 - **`0008` — receipts:** ingen fri klient-`INSERT`; skapande via **`public.create_receipt(...)`** for **owner**/**admin**; direkt `UPDATE`/`DELETE` nekas med **`receipts_deny_client_*`**-policies (RAISE). **W71–W90:** happy path, rollnekanden, cross-tenant/workshop, fel bokning/AO/offert, belopp/status, `created_by`.
 - **`0009` — audit foundation:** `public.audit_events` + RLS `SELECT` endast owner/admin i tenant; intern `append_audit_event(...)` (ej klient-anropbar); audit kopplad till `update_vehicle_registration_fields` och `create_receipt`. **W91–W118** verifierar direct write-nekande, role-based SELECT, cross-tenant, RPC-genererade audit-rader och metadata-minimering.
+- **Planerad `0010+` audit rollout:** enligt `docs/AUDIT_LOGGING_PLAN.md` — `0010` fokuserar pa liten trigger-grupp (`customer.*`, `vehicle.*` exkl. reg-varden), `0011+` pa ovriga tabeller och membership/admin.
 - **Innan produktionsklar regnr:** backend/Edge-normalisering, riktig hash/kryptering, KMS/Vault och nyckelrotation, INSERT-hardning (ev. RPC/kolumnprivilegier), audit-loggning — se `docs/RECEIPTS_AND_REGISTRATION_SECURITY_PLAN.md`.
 - **Receipts (produktion):** void/betalnings-RPC, Edge/backend, audit — se **`docs/RECEIPTS_AND_REGISTRATION_SECURITY_PLAN.md`**.
+
+### Planerad verifiering for audit rollout (`0010+`)
+
+- Bekrafta att trigger-audit i `0010` skapar events for `customer.created`, `customer.updated`, `vehicle.created`, `vehicle.updated`.
+- Bekrafta att metadata fortsatt **inte** innehaller `reg_number_*`, tokens, hemligheter eller fulla row snapshots.
+- Bekrafta oforandrad read-modell pa `audit_events`: owner/admin kan lasa egen tenant; mechanic/receptionist/viewer far 0 rader; cross-tenant nekas.
+- Hall `npx supabase test db` gron efter varje delsteg (undvik stor "allt pa en gang"-migration).
 
 ## Lokal migreringsverifiering (genomford)
 

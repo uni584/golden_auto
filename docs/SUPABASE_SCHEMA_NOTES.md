@@ -216,6 +216,18 @@ Nasta steg: kor pgTAP-regression (`npx supabase test db`) enligt `docs/RLS_VERIF
 - Audit kopplas till `update_vehicle_registration_fields(...)` (`vehicle.registration_updated`) och `create_receipt(...)` (`receipt.created`) med minimal metadata.
 - Återstår: bredare audit (customers/bookings/quotes/work_orders/tire_hotel), membership/admin-händelser, backend correlation-id, retention/export-policy.
 
+### Planerad rollout `0010+` (audit)
+
+- Styrd av **`docs/AUDIT_LOGGING_PLAN.md`**.
+- Rekommenderad **`0010`**: liten trigger-baserad första grupp:
+  - `customer.created`, `customer.updated`
+  - `vehicle.created`, `vehicle.updated` (metadata utan `reg_number_*`)
+- Rekommenderad **`0011+`**:
+  - `booking.*`, `quote.*`, `quote_item.*`, `work_order.*`, `tire_hotel.*`
+  - membership/admin-audit när säkra skrivvägar finns
+  - correlation-id från backend/request-lager
+  - retention/export-policy
+
 ## Syntax och kvalitet
 
 - SQL ar skriven for Postgres/Supabase med `pgcrypto` extension.

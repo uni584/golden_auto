@@ -123,13 +123,84 @@ Ny eller utökad **pgTAP**-fil, t.ex. `audit_events.test.sql` eller utökning av
 
 ---
 
-## 6. Sammanfattning
+## 6. Rolloutplan `0010+` (innan breda triggers)
+
+### 6.1 Full händelsekatalog och rekommenderad skrivväg
+
+| Händelse | Rek. väg | `resource_type` | Tillåten metadata (v1) | Förbjuden metadata | Risknivå | Testkrav (min) |
+|---------|----------|-----------------|------------------------|-------------------|----------|----------------|
+| `customer.created` | **Trigger** (AFTER INSERT) | `customer` | `changed_fields`, `source` | namn/e-post/telefon/personnr | Medel | rad skapas, owner/admin kan läsa |
+| `customer.updated` | **Trigger** (AFTER UPDATE) | `customer` | `changed_fields` (whitelist) | gamla/nya fulla row snapshots, direkt PII | Hög | rad skapas vid update, inga PII-nycklar |
+| `vehicle.created` | **Trigger** (AFTER INSERT) | `vehicle` | `changed_fields`, ev. `has_workshop` | regnr-fält (`reg_number_*`) | Hög | rad skapas, reg-nycklar ej i metadata |
+| `vehicle.updated` | **Trigger** (AFTER UPDATE) för icke-reg | `vehicle` | `changed_fields` (exkl. reg) | regnr-värden/hash/ciphertext/last4 | Hög | rad skapas, reg-fält filtreras bort |
+| `booking.created` | **Trigger** (AFTER INSERT) | `booking` | `status`, `source`, `changed_fields` | kundnoteringar/fritext payload | Medel | rad skapas, minimal metadata |
+| `booking.updated` | **Trigger** (AFTER UPDATE) | `booking` | `status`, `changed_fields` | full `notes`-innehåll | Medel | rad skapas vid status-/fältskifte |
+| `quote.created` | **Trigger** (AFTER INSERT) | `quote` | `status`, `currency`, `changed_fields` | offerttext/radtext | Medel | rad skapas, owner/admin read |
+| `quote.updated` | **Trigger** (AFTER UPDATE) | `quote` | `status`, `changed_fields` | full quote-text/metadata-dump | Medel | rad skapas, cross-tenant block |
+| `quote_item.created` | **Trigger** (AFTER INSERT) | `quote_item` | `changed_fields`, `item_type` | `description` i klartext om den kan innehålla PII | Medel | rad skapas per insert |
+| `quote_item.updated` | **Trigger** (AFTER UPDATE) | `quote_item` | `changed_fields` | fulla old/new line snapshots | Medel | rad skapas, inga snapshots |
+| `work_order.created` | **Trigger** (AFTER INSERT) | `work_order` | `status`, `changed_fields` | interna fritextnoteringar | Medel | rad skapas, tenant-scope korrekt |
+| `work_order.updated` | **Trigger** (AFTER UPDATE) | `work_order` | `status`, `changed_fields` | full `notes`/fria textfält | Medel/Hög | rad skapas vid update |
+| `tire_hotel.created` | **Trigger** (AFTER INSERT) | `tire_hotel` | `status`, `season`, `changed_fields` | fria noteringar | Låg/Medel | rad skapas |
+| `tire_hotel.updated` | **Trigger** (AFTER UPDATE) | `tire_hotel` | `status`, `changed_fields` | snapshots/fritext | Låg/Medel | rad skapas |
+
+**Varför trigger här:** dessa flöden går idag via flera RLS-write-vägar, inte en enda kontrollerad RPC. Trigger ger konsekvent audit utan backend-beroende.
+
+### 6.2 Trigger vs RPC/server-side rekommendation
+
+- **Behåll RPC-audit** för redan centraliserade känsliga flöden:
+  - `vehicle.registration_updated` via `update_vehicle_registration_fields`
+  - `receipt.created` via `create_receipt`
+- **Inför trigger-audit** för domäntabeller med distribuerade write-vägar:
+  - `customers`, `vehicles` (icke-reg), `bookings`, `quotes`, `quote_items`, `work_orders`, `tire_hotel`
+- **Framtida membership/admin-händelser:** helst **RPC/server-side** när säkra skrivflöden finns, inte breda tabelltriggers i första steget.
+
+### 6.3 Metadata-regler för `0010+`
+
+- **Tillåtet (baseline):**
+  - `changed_fields` (array av fältnamn)
+  - säkra statusfält (`status`, `payment_status`)
+  - ofarliga enum-/kodfält (`currency`, `season`, `item_type`, `source`)
+- **Förbjudet:**
+  - råa regnr och alla `reg_number_*`
+  - tokens/hemligheter/lösenord/API-nycklar
+  - fulla row snapshots (`old_row`, `new_row`, stora JSON-dumpar)
+  - onödig PII (namn, e-post, telefon, adress) när `resource_id` redan finns
+
+### 6.4 Rekommenderad migration `0010` (liten första grupp)
+
+**Scope för `0010` (rekommenderad):**
+- Trigger-audit för:
+  - `customer.created`
+  - `customer.updated`
+  - `vehicle.created`
+  - `vehicle.updated` (**exkludera reg-fält i metadata**)
+- Ingen ny audit på övriga tabeller i samma migration.
+
+**Varför denna grupp först:**
+- Högst affärs- och integritetsrisk utanför redan auditerade RPC-flöden.
+- Begränsad blast radius och enkel verifiering.
+- Undviker att rulla ut 14 nya actions samtidigt.
+
+**Testfall för `0010`:**
+- write-sviten verifierar att `INSERT`/`UPDATE` i ovan tabeller skapar exakt 1 audit-rad per operation.
+- metadata innehåller `changed_fields` men inga förbjudna nycklar (`reg_number_*`, `token`, `password`).
+- owner/admin kan läsa; mechanic/receptionist/viewer kan inte läsa.
+- cross-tenant SELECT på audit fortsatt blockerad.
+
+**Ska vänta till `0011+`:**
+- `bookings`, `quotes`, `quote_items`, `work_orders`, `tire_hotel`
+- membership/admin-audit
+- correlation-id från backend/request layer
+- retention/export-policy (SIEM/object storage)
+
+## 7. Sammanfattning
 
 | Fråga | Rekommendation |
 |--------|----------------|
 | Tabell | **`audit_events`** (append-only, §1). |
 | Först att logga | **`vehicle.registration_updated`** (RPC), **`receipt.created`** (RPC), därefter övriga domänobjekt enligt §3. |
 | Klientmanipulation | **Ingen** klient-`INSERT`/`UPDATE`/`DELETE`; skrivning via **definer** + intern append; **RLS** på `SELECT` till **owner/admin** i v1. |
-| Nästa kodsteg | **Ja:** fortsätt i **`0010+`** med bredare audit (customers/bookings/quotes/work_orders/tire_hotel), membership/admin-audit, correlation-id från backend-lager och retention/export-policy. |
+| Nästa kodsteg | **Ja:** kör **`0010`** med liten trigger-grupp (`customer.*`, `vehicle.*` exkl. reg-värden), därefter `0011+` för övriga tabeller och membership/admin-audit. |
 
 *Senast uppdaterad: `0009` implementerad och verifierad i pgTAP.*
