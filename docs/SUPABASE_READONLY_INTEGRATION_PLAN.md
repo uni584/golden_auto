@@ -73,6 +73,13 @@ Lokal setup:
   - `source: "supabase"`
   - `count`
   - `customers` med minimerade falt
+  - falt: `id`, `customer_number`, `full_name`, `email`, `phone`, `created_at`, `updated_at`
+
+Schemaanpassning (viktig notering):
+
+- `public.customers` saknar kolumnen `is_active`.
+- Select-listan for Supabase customers-read ar darfor justerad till explicit lista utan `is_active`.
+- Tidigare `ovantat svar` pa read-check var ett select/schema-mismatch (PostgREST), inte ett RLS-fel.
 
 #### Snabb checklista och forvantade svar
 
@@ -88,6 +95,7 @@ Lokal setup:
 - Saknad token -> `401`
 - Felaktigt Bearer-format -> `400`
 - Supabase nekar token/RLS -> `401` eller `403`
+- Select/schema-mismatch -> `502` (med generisk backend-logg utan token/hemligheter)
 - Giltig Supabase token med tillaten customers-read -> `200` + `source="supabase"` + `count`
 - MongoDB fallback far inte ske i denna endpoint
 
@@ -238,7 +246,6 @@ Varfor:
 - `full_name`
 - `phone`
 - `email`
-- `is_active`
 - `created_at`
 - `updated_at`
 

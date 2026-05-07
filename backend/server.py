@@ -59,7 +59,6 @@ SUPABASE_CUSTOMERS_SELECT = ",".join([
     "full_name",
     "email",
     "phone",
-    "is_active",
     "created_at",
     "updated_at",
 ])
@@ -116,10 +115,11 @@ async def fetch_customers_from_supabase(q: Optional[str], authorization_header: 
         return None
 
     if resp.status_code != 200:
+        error_summary = summarize_postgrest_error(resp)
         if resp.status_code in (401, 403):
-            logger.warning("Supabase customers read unauthorized/forbidden; falling back to MongoDB")
+            logger.warning("Supabase customers read unauthorized/forbidden; falling back to MongoDB (%s)", error_summary)
         else:
-            logger.warning("Supabase customers read returned non-200 (%s); falling back to MongoDB", resp.status_code)
+            logger.warning("Supabase customers read returned non-200; falling back to MongoDB (%s)", error_summary)
         return None
 
     try:
@@ -142,7 +142,8 @@ async def fetch_customers_from_supabase(q: Optional[str], authorization_header: 
             "phone": row.get("phone"),
             "email": row.get("email"),
             "customer_number": row.get("customer_number"),
-            "is_active": row.get("is_active", True),
+            # Keep legacy /api/customers response contract while Supabase customers lacks is_active.
+            "is_active": True,
             "created_at": row.get("created_at"),
             "updated_at": row.get("updated_at"),
             "notes": None,
@@ -186,6 +187,21 @@ async def verify_supabase_user_token(user_access_token: str) -> Optional[str]:
     if not isinstance(user_id, str) or not user_id.strip():
         return None
     return user_id
+
+
+def summarize_postgrest_error(resp: httpx.Response) -> dict:
+    summary = {"status_code": resp.status_code}
+    try:
+        payload = resp.json()
+    except Exception:
+        payload = None
+
+    if isinstance(payload, dict):
+        for key in ("code", "message", "details", "hint"):
+            value = payload.get(key)
+            if isinstance(value, str) and value.strip():
+                summary[key] = value.strip()[:300]
+    return summary
 
 # ---------- JWT / Auth helpers ----------
 JWT_ALGO = "HS256"
@@ -551,9 +567,12 @@ async def supabase_customers_read_check(request: Request, q: Optional[str] = Non
         logger.exception("Supabase customers read smoke check request failed")
         raise HTTPException(status_code=502, detail="Supabase customers read check misslyckades")
 
+    error_summary = summarize_postgrest_error(resp)
     if resp.status_code in (401, 403):
+        logger.warning("Supabase customers read smoke check denied (%s)", error_summary)
         raise HTTPException(status_code=resp.status_code, detail="Supabase nekar token for customers read")
     if resp.status_code != 200:
+        logger.warning("Supabase customers read smoke check non-200 (%s)", error_summary)
         raise HTTPException(status_code=502, detail="Supabase customers read check gav ovantat svar")
 
     try:
@@ -575,7 +594,6 @@ async def supabase_customers_read_check(request: Request, q: Optional[str] = Non
             "full_name": row.get("full_name"),
             "email": row.get("email"),
             "phone": row.get("phone"),
-            "is_active": row.get("is_active", True),
             "created_at": row.get("created_at"),
             "updated_at": row.get("updated_at"),
         })

@@ -274,6 +274,8 @@ Nasta steg: kor pgTAP-regression (`npx supabase test db`) enligt `docs/RLS_VERIF
 - Backend har dessutom en dev/staging-only smoke-endpoint (`/api/dev/supabase-auth-check`) bakom `SUPABASE_AUTH_CHECK_ENABLED` for att verifiera tokenkedjan utan writes.
 - Backend har dessutom en dev/staging-only customers read smoke-endpoint (`/api/dev/supabase-customers-read-check`) bakom `SUPABASE_CUSTOMERS_READ_CHECK_ENABLED` for att verifiera RLS-read med Supabase JWT.
 - `SUPABASE_ANON_KEY` anvands som `apikey`, men inte som user `Authorization`.
+- For customers read-only anvands explicit select-lista: `id`, `customer_number`, `full_name`, `email`, `phone`, `created_at`, `updated_at` (ingen `select *`).
+- `public.customers` saknar `is_active`; select-list mismatch mot `is_active` ger PostgREST-fel och ska behandlas som schema/anropsfel, inte RLS-fel.
 - Viktig nulagesnotering: `GET /api/customers` skyddas fortfarande av legacy backend-auth (`Depends(get_current_user)` med `HS256` + lokal `JWT_SECRET`).
 - Konsekvens: enbart Supabase access token mot `/api/customers` ger `401 Ogiltig token` innan Supabase-read/RLS exekveras.
 - Slutsats: detta ar en auth-kompatibilitetsblocker (forvantar legacy JWT), inte ett schema- eller RLS-fel.
