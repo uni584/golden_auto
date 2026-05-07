@@ -48,6 +48,7 @@ db = client[DB_NAME]
 # ---------- Supabase read-only (customers, phase 1A) ----------
 SUPABASE_READONLY_CUSTOMERS_ENABLED = env_bool("SUPABASE_READONLY_CUSTOMERS_ENABLED", False)
 SUPABASE_AUTH_CHECK_ENABLED = env_bool("SUPABASE_AUTH_CHECK_ENABLED", False)
+SUPABASE_CUSTOMERS_READ_CHECK_ENABLED = env_bool("SUPABASE_CUSTOMERS_READ_CHECK_ENABLED", False)
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "").strip()
 SUPABASE_ANON_KEY = os.environ.get("SUPABASE_ANON_KEY", "").strip()
 SUPABASE_CUSTOMERS_TIMEOUT_SEC = float(os.environ.get("SUPABASE_CUSTOMERS_TIMEOUT_SEC", "5"))
@@ -506,6 +507,83 @@ async def supabase_auth_check(request: Request):
         "authenticated": True,
         "user_id": user_id,
         "customers_read_token_usable": True,
+    }
+
+
+@api.get("/dev/supabase-customers-read-check")
+async def supabase_customers_read_check(request: Request, q: Optional[str] = None):
+    if not SUPABASE_CUSTOMERS_READ_CHECK_ENABLED:
+        raise HTTPException(status_code=404, detail="Not found")
+
+    if not SUPABASE_URL or not SUPABASE_ANON_KEY:
+        raise HTTPException(status_code=503, detail="Supabase customers read check ej konfigurerad")
+
+    auth_header = request.headers.get("Authorization")
+    if not auth_header:
+        raise HTTPException(status_code=401, detail="Ej autentiserad")
+
+    user_access_token = extract_bearer_token(auth_header)
+    if not user_access_token:
+        raise HTTPException(status_code=400, detail="Ogiltigt Authorization-format")
+
+    params = {
+        "select": SUPABASE_CUSTOMERS_SELECT,
+        "order": "full_name.asc",
+        "limit": "50",
+    }
+
+    if q:
+        safe_q = q.replace("*", "").replace(",", "").strip()
+        if safe_q:
+            params["or"] = f"(full_name.ilike.*{safe_q}*,phone.ilike.*{safe_q}*,email.ilike.*{safe_q}*)"
+
+    headers = {
+        "apikey": SUPABASE_ANON_KEY,
+        "Authorization": f"Bearer {user_access_token}",
+        "Accept": "application/json",
+    }
+    url = f"{SUPABASE_URL.rstrip('/')}/rest/v1/customers"
+
+    try:
+        async with httpx.AsyncClient(timeout=SUPABASE_CUSTOMERS_TIMEOUT_SEC) as client_http:
+            resp = await client_http.get(url, params=params, headers=headers)
+    except Exception:
+        logger.exception("Supabase customers read smoke check request failed")
+        raise HTTPException(status_code=502, detail="Supabase customers read check misslyckades")
+
+    if resp.status_code in (401, 403):
+        raise HTTPException(status_code=resp.status_code, detail="Supabase nekar token for customers read")
+    if resp.status_code != 200:
+        raise HTTPException(status_code=502, detail="Supabase customers read check gav ovantat svar")
+
+    try:
+        rows = resp.json()
+    except Exception:
+        logger.exception("Supabase customers read smoke check returned invalid JSON")
+        raise HTTPException(status_code=502, detail="Supabase customers read check returnerade ogiltig JSON")
+
+    if not isinstance(rows, list):
+        raise HTTPException(status_code=502, detail="Supabase customers read check returnerade ovantat payload")
+
+    customers = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        customers.append({
+            "id": row.get("id"),
+            "customer_number": row.get("customer_number"),
+            "full_name": row.get("full_name"),
+            "email": row.get("email"),
+            "phone": row.get("phone"),
+            "is_active": row.get("is_active", True),
+            "created_at": row.get("created_at"),
+            "updated_at": row.get("updated_at"),
+        })
+
+    return {
+        "source": "supabase",
+        "count": len(customers),
+        "customers": customers,
     }
 
 

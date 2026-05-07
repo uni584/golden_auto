@@ -91,6 +91,23 @@ Stegvis overgang:
   - `customers_read_token_usable`
 - Returnerar aldrig token/claims-dump.
 
+### Ny dev/staging customers read smoke-verifiering (implementerad)
+
+- Endpoint: `GET /api/dev/supabase-customers-read-check`
+- Skyddas av egen env-flagga: `SUPABASE_CUSTOMERS_READ_CHECK_ENABLED` (default `false`)
+- Nar flaggan ar avstangd returneras `404`
+- Endpointen ar endast for dev/staging och ska inte exponeras i produktion
+- Endpointen anvander **inte** legacy `get_current_user` (ingen HS256-verifiering i denna smoke-vag)
+- Endpointen anvander **ingen** MongoDB-fallback, for att inte maskera RLS-resultat
+- Supabase-anrop sker endast med:
+  - `apikey: SUPABASE_ANON_KEY`
+  - `Authorization: Bearer <incoming supabase access token>`
+- Ingen service role, inga writes
+- Returnerar endast verifieringssvar:
+  - `source`
+  - `count`
+  - `customers` (minimerad faltlista utan notes/fritext)
+
 ### Exakt verifieringsflode for `/api/dev/supabase-auth-check`
 
 Forberedelser (dev/staging):
@@ -116,6 +133,32 @@ Forvantade svar:
   - `user_id: <uuid>`
   - `customers_read_token_usable: true`
 
+### Exakt verifieringsflode for `/api/dev/supabase-customers-read-check`
+
+Forberedelser (dev/staging):
+
+- `SUPABASE_CUSTOMERS_READ_CHECK_ENABLED=true`
+- `SUPABASE_URL` satt
+- `SUPABASE_ANON_KEY` satt
+- Endast syntetiska testanvandare
+
+Request:
+
+- `GET /api/dev/supabase-customers-read-check`
+- Header: `Authorization: Bearer <supabase_access_token>`
+- Valfri query: `q=<sokterm>`
+
+Forvantade svar:
+
+- Flag av -> `404`
+- Saknad token/header -> `401`
+- Felaktigt Authorization-format -> `400`
+- Supabase nekar token (RLS/auth) -> `401` eller `403`
+- Giltig Supabase token + tillaten RLS-scope -> `200` med:
+  - `source: "supabase"`
+  - `count`
+  - `customers` (minimerad read-only lista)
+
 ## 4) Dev/staging-verifiering (syntetiska anvandare)
 
 Verifiera minst dessa identiteter:
@@ -137,6 +180,7 @@ Kontroller:
 - Ingen token i loggar eller felmeddelanden.
 - Endast syntetisk data.
 - Ingen token committas och ingen token loggas.
+- For customers read smoke-check: fallback till MongoDB far inte ske (annars maskeras RLS-resultat).
 
 ## 5) Rekommenderat nasta smala kodsteg
 
@@ -207,6 +251,7 @@ Lokal setup:
 
 - `SUPABASE_READONLY_CUSTOMERS_ENABLED=false`
 - `SUPABASE_AUTH_CHECK_ENABLED=false` (endast dev/staging smoke-check)
+- `SUPABASE_CUSTOMERS_READ_CHECK_ENABLED=false` (dev/staging-only customers RLS smoke-check)
 - `SUPABASE_URL=...`
 - `SUPABASE_ANON_KEY=...`
 - `SUPABASE_CUSTOMERS_TIMEOUT_SEC=5`

@@ -57,6 +57,23 @@ Lokal setup:
 - Returnerar endast minimal diagnostik (`authenticated`, `user_id`, `customers_read_token_usable`)
 - Ersatter inte faktisk auth-migration; den validerar endast tokenkedjan i dev/staging
 
+### Dev/staging smoke endpoint (customers RLS-read verifiering)
+
+- Endpoint: `GET /api/dev/supabase-customers-read-check`
+- Feature flag: `SUPABASE_CUSTOMERS_READ_CHECK_ENABLED` (default `false`)
+- Nar flag av: `404`
+- Endast dev/staging, ska inte exponeras i produktion
+- Ingen legacy auth dependency pa denna endpoint (ingen `get_current_user`)
+- Ingen MongoDB fallback (avsiktligt for tydlig RLS-signal)
+- Endast Supabase-read med:
+  - `apikey: SUPABASE_ANON_KEY`
+  - `Authorization: Bearer <incoming Supabase access token>`
+- Ingen service role, inga writes
+- Returnerar verifieringssvar:
+  - `source: "supabase"`
+  - `count`
+  - `customers` med minimerade falt
+
 #### Snabb checklista och forvantade svar
 
 - Flag av -> `404`
@@ -64,6 +81,15 @@ Lokal setup:
 - Felaktigt Bearer-format -> `400`
 - Ogiltig token -> `401`
 - Giltig Supabase access token -> `200` + `authenticated=true` + `user_id`
+
+#### Snabb checklista och forvantade svar (customers read-check)
+
+- Flag av -> `404`
+- Saknad token -> `401`
+- Felaktigt Bearer-format -> `400`
+- Supabase nekar token/RLS -> `401` eller `403`
+- Giltig Supabase token med tillaten customers-read -> `200` + `source="supabase"` + `count`
+- MongoDB fallback far inte ske i denna endpoint
 
 ## Auth/RLS-gap for nuvarande customers-read
 
@@ -134,6 +160,13 @@ Steg 2: verifiera customers read-only mot RLS
 - Bekrafta att cross-tenant/cross-workshop ger 0 rader.
 - I verifieringslaget: bevaka att MongoDB-fallback inte maskerar RLS-fel (tolka fallback som varningssignal under test).
 - Notera: med nuvarande auth-guard kan detta steg inte fullfoljas via `/api/customers` med endast Supabase token; separat kontrollerad auth-vag behovs for verifieringen.
+
+Steg 2A (nu implementerat for verifiering):
+
+- Kor `GET /api/dev/supabase-customers-read-check` med owner-testtoken.
+- Forvantat: `200`, `source="supabase"`, `count > 0` (om syntetisk customers-data finns inom scope).
+- Verifiera att returned `customers` ar minimerad och utan notes/fritext.
+- Vid `401/403`: tolka som auth/RLS deny-signal och felsok membership/tokenkedja, inte MongoDB.
 
 Rollmatris for manuell/dev-verifiering:
 
@@ -311,3 +344,8 @@ Foreslagna filer/omraden att andra i nasta kodprompt:
 - Smoke-check ar gron enligt svarsmatris.
 - Customers read-only verifieras via kontrollerad auth-vag (inte legacy-blockerad) for rollmatrisen med korrekt RLS-scope.
 - Vid misslyckad RLS/token: stoppa och atgarda auth/membership innan vidare tabeller.
+
+Efter gron smoke-check:
+
+- Nasta steg ar kontrollerad token-forwarding/auth-migration for riktiga appfloden pa utvalda read-only endpoints.
+- Legacy `/api/customers` och MongoDB-default forblir oforandrade tills migrationen ar verifierad.

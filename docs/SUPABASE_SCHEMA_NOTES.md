@@ -272,9 +272,11 @@ Nasta steg: kor pgTAP-regression (`npx supabase test db`) enligt `docs/RLS_VERIF
 - RLS-modellen i Supabase forutsatter riktig user-context (`auth.uid()`), kopplad till `tenant_members` och `workshop_members`.
 - Backend har forberedelse for passthrough av inkommande Bearer user-token till Supabase customers-read.
 - Backend har dessutom en dev/staging-only smoke-endpoint (`/api/dev/supabase-auth-check`) bakom `SUPABASE_AUTH_CHECK_ENABLED` for att verifiera tokenkedjan utan writes.
+- Backend har dessutom en dev/staging-only customers read smoke-endpoint (`/api/dev/supabase-customers-read-check`) bakom `SUPABASE_CUSTOMERS_READ_CHECK_ENABLED` for att verifiera RLS-read med Supabase JWT.
 - `SUPABASE_ANON_KEY` anvands som `apikey`, men inte som user `Authorization`.
 - Viktig nulagesnotering: `GET /api/customers` skyddas fortfarande av legacy backend-auth (`Depends(get_current_user)` med `HS256` + lokal `JWT_SECRET`).
 - Konsekvens: enbart Supabase access token mot `/api/customers` ger `401 Ogiltig token` innan Supabase-read/RLS exekveras.
 - Slutsats: detta ar en auth-kompatibilitetsblocker (forvantar legacy JWT), inte ett schema- eller RLS-fel.
+- For smoke-verifiering av customers RLS anvands den separata dev-endpointen utan MongoDB-fallback, sa deny (`401/403`) inte maskeras.
 - Pathen ar fortfarande **foundation/steg 1** tills en kontrollerad auth-vag finns for att verifiera Supabase user-token pa utvalda read-only endpoints i staging/dev.
 - Ingen service-role bypass far anvandas for vanlig domandata-read.
