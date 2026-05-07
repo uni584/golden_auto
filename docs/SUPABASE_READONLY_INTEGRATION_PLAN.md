@@ -19,7 +19,19 @@ Detta dokument planerar **forsta sakra read-only integrationen** av Supabase i G
 - Nar flaggan ar `true`: backend forsoker Supabase read-only for customers.
 - Vid saknad Supabase-config eller read-fel: kontrollerad fallback till MongoDB.
 - Inga Supabase writes introducerade.
-- **Auth/RLS-gap delvis atgardat:** backend kan nu lasa och vidarebefordra inkommande `Authorization: Bearer <token>` till Supabase-read path.
+- **Auth-blocker kvarstar:** `GET /api/customers` kraver fortfarande legacy backend-JWT via `Depends(get_current_user)` innan Supabase read-only pathen kan na's.
+
+### Observerad verifieringsstatus (dev)
+
+- `GET /api/dev/supabase-auth-check` fungerar med giltig Supabase access token.
+- Endpointen returnerar korrekt Supabase `user_id` (exempel: `a257c0d4-8fbe-4229-ade0-a5fa34dbb98d`).
+- Samma token mot `GET /api/customers` ger `401 {"detail":"Ogiltig token"}`.
+
+Orsak:
+
+- `get_current_user` dekodar bearer token med legacy `JWT_SECRET` (`HS256`).
+- Supabase access token ar inte signerad med denna legacy secret.
+- Resultat: anropet stoppas innan `fetch_customers_from_supabase(...)` kan verifiera RLS-read.
 
 ### Miljovariabler for Fas 1A
 
@@ -60,6 +72,7 @@ Lokal setup:
 - `GET /api/customers` anropar Supabase REST med:
   - `apikey: SUPABASE_ANON_KEY`
   - `Authorization: Bearer <inkommande user token>` om giltig Bearer-header finns
+- Men den koden exekveras forst efter passerad endpoint-auth (`get_current_user`).
 - Om giltig Bearer-header saknas fallbackar pathen till MongoDB.
 - `SUPABASE_ANON_KEY` anvands **inte** som user-authorization.
 
@@ -71,6 +84,7 @@ Lokal setup:
   - 401/403, eller
   - 0 rader beroende pa policy och JWT-innehall.
 - Vid deny/non-200 sker kontrollerad fallback till MongoDB.
+- I nuvarande lage med enbart Supabase token till `/api/customers` uppstar blocker redan i legacy-auth, dvs fore faktisk RLS-evaluering.
 
 ## Varfor Fas 1A inte ar live-redo an
 
@@ -119,6 +133,7 @@ Steg 2: verifiera customers read-only mot RLS
 - Bekrafta att RLS-scope foljer tenant/workshop per roll.
 - Bekrafta att cross-tenant/cross-workshop ger 0 rader.
 - I verifieringslaget: bevaka att MongoDB-fallback inte maskerar RLS-fel (tolka fallback som varningssignal under test).
+- Notera: med nuvarande auth-guard kan detta steg inte fullfoljas via `/api/customers` med endast Supabase token; separat kontrollerad auth-vag behovs for verifieringen.
 
 Rollmatris for manuell/dev-verifiering:
 
@@ -270,24 +285,29 @@ Foreslagna filer/omraden att andra i nasta kodprompt:
 
 ## 8) Rekommenderad nasta kodprompt (smal)
 
-**Mal:** Minimal token-forwarding i dev/staging sa backend far verklig Supabase access token i `Authorization` utan auth-redesign.
+**Mal:** Minska risk och verifiera customers RLS utan broad auth-bypass.
 
-**Tillatna filer i nasta steg:**
-- backend auth/service-lager for token forwarding/verifiering
-- backend service/repository filer for Supabase customers read
-- backend config/env hantering for Supabase URL/nyckel + feature flag + ev token-installsningar
-- backend tester (smoke/unit) for nya read-only pathen
-- docs som beror read-only implementation
+**Rekommenderad strategi (prio-ordning):**
+1. dev-only customers Supabase smoke endpoint (read-only, minimal diagnostik)
+2. alternativt dual-token for explicit allowlistade read-only endpoints i dev/staging
+3. drefter kontrollerad migration till gemensam auth dependency for utvalda read-only endpoints
+
+**Tillatna filer i nasta steg (om kod andras da):**
+- backend auth/dependency-lager for smal verifiering pa read-only endpoint-niva
+- backend service/repository for customers read-only
+- backend config/env feature flags for kontrollerad rollout
+- docs for auth/read-only verifiering
 
 **Ej tillatna i nasta steg:**
 - frontend UI-redesign
+- frontend auth-redesign
 - vehicles-read implementation
 - alla writes mot Supabase
 - service-role bypass av vanlig customers-read
 - migrationer, RLS-policyer, testsviter for databasmigrationer
-- auth-floden, MongoDB write-floden
+- bred bypass av auth-floden, MongoDB write-floden
 
 **Definition of done for nasta steg:**
 - Smoke-check ar gron enligt svarsmatris.
-- Customers read-only ar gron for rollmatrisen med korrekt RLS-scope.
+- Customers read-only verifieras via kontrollerad auth-vag (inte legacy-blockerad) for rollmatrisen med korrekt RLS-scope.
 - Vid misslyckad RLS/token: stoppa och atgarda auth/membership innan vidare tabeller.

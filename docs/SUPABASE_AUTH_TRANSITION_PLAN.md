@@ -14,11 +14,34 @@ Detta dokument beskriver en kontrollerad overgang fran nuvarande auth i Golden A
 - Backend verifierar egen JWT-signatur (`HS256`) via lokal `JWT_SECRET`.
 - Token kommer via cookie `access_token` eller `Authorization: Bearer ...`.
 - Denna JWT ar backend-intern och inte verifierad som Supabase access token.
+- `GET /api/customers` ar explicit skyddad med `Depends(get_current_user)`, dvs legacy JWT-guard exekveras innan customers-handlern.
 
 ### Konsekvens
 
 - Backend kan identifiera anvandaren for MongoDB-floden.
 - Men Supabase RLS-funktioner (`auth.uid()`) far bara korrekt user-context om en giltig Supabase user token skickas till Supabase.
+- Enbart Supabase access token mot `GET /api/customers` stoppas i nulaget av legacy JWT-dekodning och blir `401 Ogiltig token`.
+
+## 1.1) Verifierad status (dev smoke vs app-endpoint)
+
+Verifierat lage i dev:
+
+- `GET /api/dev/supabase-auth-check` ar gron med giltig Supabase access token.
+- Endpointen returnerar korrekt `user_id` (observerad: `a257c0d4-8fbe-4229-ade0-a5fa34dbb98d`).
+- `GET /api/customers` returnerar `{"detail":"Ogiltig token"}` med samma Supabase token.
+
+Rotorsak:
+
+- `customers_list` kraver `user: dict = Depends(get_current_user)`.
+- `get_current_user` forsoker `jwt.decode(token, JWT_SECRET, algorithms=["HS256"])`.
+- Supabase JWT ar inte signerad med lokal `JWT_SECRET` och matchar inte legacy-formatet.
+- Resultat: `jwt.InvalidTokenError` -> `401 Ogiltig token` innan Supabase read-only pathen exekveras.
+
+Sakerhetsbedomning:
+
+- Detta ar en korrekt sakerhetsblocker i overgangsfasen.
+- Felet ligger i auth-guard-kompatibilitet, inte i Supabase RLS-policyer.
+- RLS for `customers` kunde inte verifieras via `GET /api/customers` i detta test, eftersom anropet stoppades fore Supabase-read.
 
 ## 2) Supabase Auth-krav for RLS
 
@@ -117,15 +140,38 @@ Kontroller:
 
 ## 5) Rekommenderat nasta smala kodsteg
 
-Rekommenderat nasta steg: **dev/staging minimal token-forwarding fran klient till backend** for att mata `Authorization` med verklig Supabase access token.
+Rekommenderat nasta steg ar en **kontrollerad auth-migration for utvalda read-only endpoints** i dev/staging, utan broad bypass:
 
-Mal:
+Alternativ A (sakrast for snabb verifiering):  
+- lagg till en dev-only customers Supabase smoke endpoint som *inte* anvander legacy `get_current_user`, men som:
+  - krav pa giltig Supabase Bearer-token
+  - anropar Supabase customers read med samma token + `apikey`
+  - returnerar minimal diagnostik / read-count utan PII-dump
+- syfte: verifiera verklig `customers` RLS-vag separat fran legacy app-auth.
 
-- Bekrafta om inkommande Bearer-token ar Supabase-kompatibel for RLS-read.
-- Returnera endast icke-kanslig diagnostik (t.ex. "token present", "supabase call ok/deny"), aldrig tokeninnehall.
-- Ingen write och ingen frontend-redesign.
+Alternativ B (kontrollerad dual-token pa endpoint-niva):  
+- behall legacy auth som default
+- tillat Supabase JWT endast pa explicit allowlistade read-only endpoints i dev/staging
+- ingen andring av writes, vehicles eller ovriga endpoint-floden.
 
-Alternativt (om nuvarande frontend auth redan enkelt kan kompletteras): minimal token-forwarding i frontend request-lager utan UI-andring.
+Alternativ C (styrd stegvis migration):  
+- infors ny auth dependency som kan verifiera:
+  - legacy HS256 JWT (bakat kompatibilitet), eller
+  - Supabase JWT (for utvalda read-only endpoints)
+- rollout bakom feature flag och med tydlig endpoint-allowlist.
+
+Guardrails for nasta kodsteg:
+
+- ingen service role
+- inga writes
+- ingen frontend-redesign
+- ingen riktig kunddata
+- MongoDB kvar som default/fallback
+- ingen bred auth-bypass
+
+Rekommenderad nasta kodprompt (kopiera vid behov):
+
+`Implementera en dev/staging-only customers Supabase smoke endpoint (read-only) som verifierar Supabase Bearer-token utan att anvanda legacy get_current_user. Behall befintlig auth oforandrad for ovriga endpoints, inga writes, ingen service role, ingen frontendandring. Returnera endast minimal diagnostik for RLS-verifiering.`
 
 ### Stoppregel vid fel
 
